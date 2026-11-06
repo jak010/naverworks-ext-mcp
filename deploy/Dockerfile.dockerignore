@@ -1,0 +1,21 @@
+# deploy/Dockerfile 전용 ignore 파일 (BuildKit: <Dockerfile 경로>.dockerignore)
+# 빌드 컨텍스트(저장소 루트)에서 이미지에 필요한 것은 apps/app, apps/main.py, deploy/requirements.txt 뿐입니다.
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+.venv
+.git
+.pytest_cache
+.env
+**/.env
+**/.env.*
+tests
+docs
+*.md
+Makefile
+pytest.ini
+.python-version
+apps/server.py
+apps/cli.py
+deploy/*.sh
+deploy/requirements-dev.txt

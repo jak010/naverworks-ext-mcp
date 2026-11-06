@@ -1,0 +1,4 @@
+# 개발·테스트 의존성 (deploy/setup.sh / make dev 에서 설치)
+-r requirements.txt
+pytest>=8.0.0
+pyflakes>=3.0.0
