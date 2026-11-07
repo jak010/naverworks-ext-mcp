@@ -6,7 +6,6 @@ from typing import Dict, Any, List, Optional
 from app.config import (
     is_local_mode,
     BASE_URL,
-    DEFAULT_DOMAIN_ID,
     DEFAULT_INSTANCE_CODE,
 )
 from app.core.client import async_api_request
@@ -18,6 +17,7 @@ from app.core.cookie import (
     describe_cookie_source,
 )
 from app.core.auth_context import set_current_user_cookie
+from app.core.ids import resolve_domain_id, resolve_project_rl, remember_rl, cached_rl
 
 # 단기 인메모리 캐시 (LLM의 다중 연속 도구 호출 시 네트워크 지연 0초 실현)
 _query_cache: Dict[str, tuple[float, Any]] = {}
@@ -102,7 +102,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Defaults to the server setting (NAVERWORKS_DOMAIN_ID)."}
             }
         }
     },
@@ -113,7 +113,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "spaceId": {"type": "string"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["spaceId"]
         }
@@ -126,7 +126,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "properties": {
                 "spaceName": {"type": "string"},
                 "spaceColor": {"type": "string", "default": "#4694e5"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Defaults to the server setting (NAVERWORKS_DOMAIN_ID)."}
             },
             "required": ["spaceName"]
         }
@@ -138,7 +138,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "spaceId": {"type": "string"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["spaceId"]
         }
@@ -150,7 +150,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "spaceId": {"type": "string", "description": "Space ID to list projects for"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["spaceId"]
         }
@@ -162,7 +162,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "projectId": {"type": "string"},
-                "instanceCode": {"type": "string", "default": DEFAULT_INSTANCE_CODE}
+                "instanceCode": {"type": "string", "description": "Optional. Resolved automatically from the project (rl); override only if needed."}
             },
             "required": ["projectId"]
         }
@@ -177,7 +177,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
                 "projectName": {"type": "string"},
                 "projectColor": {"type": "string", "default": "#ed7200"},
                 "projectType": {"type": "string", "default": "OPEN"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["spaceId", "projectName"]
         }
@@ -189,7 +189,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "projectId": {"type": "string"},
-                "instanceCode": {"type": "string", "default": DEFAULT_INSTANCE_CODE}
+                "instanceCode": {"type": "string", "description": "Optional. Resolved automatically from the project (rl); override only if needed."}
             },
             "required": ["projectId"]
         }
@@ -201,7 +201,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "projectId": {"type": "string"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["projectId"]
         }
@@ -213,7 +213,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "taskId": {"type": "string"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["taskId"]
         }
@@ -228,8 +228,8 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
                 "title": {"type": "string"},
                 "htmlText": {"type": "string", "default": ""},
                 "parentTaskId": {"type": "string"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID},
-                "rl": {"type": "string", "default": DEFAULT_INSTANCE_CODE}
+                "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."},
+                "rl": {"type": "string", "description": "Optional. Resolved automatically from the project (rl); override only if needed."}
             },
             "required": ["projectId", "title"]
         }
@@ -242,7 +242,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "properties": {
                 "taskId": {"type": "string"},
                 "htmlText": {"type": "string"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["taskId", "htmlText"]
         }
@@ -254,7 +254,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "taskId": {"type": "string"},
-                "domainId": {"type": "string", "default": DEFAULT_DOMAIN_ID}
+                "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["taskId"]
         }
@@ -530,25 +530,27 @@ async def async_execute_tool(
         cached = get_cached_result(cache_key)
         if cached:
             return _format_result(cached)
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
+        domain_id = resolve_domain_id(args.get("domainId"))
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/spaces", cookie_override=cookie_override)
         if res.get("status") == 200:
+            remember_rl(res.get("data"))
             slimmed = _slim_spaces(res.get("data"))
             set_cached_result(cache_key, slimmed)
             return _format_result(slimmed)
         return _format_result(res, is_error=True)
 
     elif tool_name == "get_space":
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
         space_id = args["spaceId"]
+        domain_id = resolve_domain_id(args.get("domainId"), space_id)
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/spaces/{space_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
+            remember_rl(res.get("data"))
             return _format_result(_slim_space(res.get("data")))
         return _format_result(res, is_error=True)
 
     elif tool_name == "create_space":
         invalidate_mcp_cache()
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
+        domain_id = resolve_domain_id(args.get("domainId"))
         payload = {
             "spaceName": args["spaceName"],
             "spaceColor": args.get("spaceColor", "#4694e5"),
@@ -559,8 +561,8 @@ async def async_execute_tool(
 
     elif tool_name == "delete_space":
         invalidate_mcp_cache()
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
         space_id = args["spaceId"]
+        domain_id = resolve_domain_id(args.get("domainId"), space_id)
         res = await async_api_request("DELETE", f"/rd/{domain_id}/api/v1/spaces/{space_id}", cookie_override=cookie_override)
         msg = "Space deleted successfully" if res.get("status") == 200 else f"Failed to delete space: {res.get('error')}"
         return _format_result(msg, is_error=res.get("status") != 200)
@@ -570,10 +572,11 @@ async def async_execute_tool(
         cached = get_cached_result(cache_key)
         if cached:
             return _format_result(cached)
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
         space_id = args["spaceId"]
+        domain_id = resolve_domain_id(args.get("domainId"), space_id)
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/projects?spaceId={space_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
+            remember_rl(res.get("data"))
             slimmed = _slim_projects(res.get("data"))
             set_cached_result(cache_key, slimmed)
             return _format_result(slimmed)
@@ -583,10 +586,12 @@ async def async_execute_tool(
         cached = get_cached_result(cache_key)
         if cached:
             return _format_result(cached)
-        instance_code = args.get("instanceCode", DEFAULT_INSTANCE_CODE)
         project_id = args["projectId"]
+        # 조회는 instanceCode가 달라도 동작하므로 추가 호출 없이 명시 값 → 캐시 → 기본값 사용
+        instance_code = args.get("instanceCode") or cached_rl(project_id) or DEFAULT_INSTANCE_CODE
         res = await async_api_request("GET", f"/rl/{instance_code}/api/v1/projects/{project_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
+            remember_rl(res.get("data"))
             slimmed = _slim_project(res.get("data"))
             set_cached_result(cache_key, slimmed)
             return _format_result(slimmed)
@@ -594,7 +599,7 @@ async def async_execute_tool(
 
     elif tool_name == "create_project":
         invalidate_mcp_cache()
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
+        domain_id = resolve_domain_id(args.get("domainId"), args["spaceId"])
         payload = {
             "spaceId": args["spaceId"],
             "projectName": args["projectName"],
@@ -603,12 +608,15 @@ async def async_execute_tool(
             "spaceProjectParameter": None
         }
         res = await async_api_request("POST", f"/rd/{domain_id}/api/v1/projects", payload, cookie_override=cookie_override)
+        if res.get("status") == 200:
+            remember_rl(res.get("data"))
         return _format_result(res.get("data") if res.get("status") == 200 else res, is_error=res.get("status") != 200)
 
     elif tool_name == "delete_project":
         invalidate_mcp_cache()
-        instance_code = args.get("instanceCode", DEFAULT_INSTANCE_CODE)
         project_id = args["projectId"]
+        # 쓰기 요청은 프로젝트의 실제 rl 사용 (명시 값 → 캐시 → 프로젝트 조회 → 기본값)
+        instance_code = await resolve_project_rl(project_id, args.get("instanceCode"), cookie_override)
         res = await async_api_request("DELETE", f"/rl/{instance_code}/api/v1/projects/{project_id}", cookie_override=cookie_override)
         msg = "Project deleted successfully" if res.get("status") == 200 else f"Failed to delete project: {res.get('error')}"
         return _format_result(msg, is_error=res.get("status") != 200)
@@ -618,8 +626,8 @@ async def async_execute_tool(
         cached = get_cached_result(cache_key)
         if cached:
             return _format_result(cached)
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
         project_id = args["projectId"]
+        domain_id = resolve_domain_id(args.get("domainId"), project_id)
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/tasks?projectId={project_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
             slimmed = _slim_tasks(res.get("data"))
@@ -628,8 +636,8 @@ async def async_execute_tool(
         return _format_result(res, is_error=True)
 
     elif tool_name == "get_task":
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
         task_id = args["taskId"]
+        domain_id = resolve_domain_id(args.get("domainId"), task_id)
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/tasks/{task_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
             return _format_result(_slim_task(res.get("data")))
@@ -637,9 +645,9 @@ async def async_execute_tool(
 
     elif tool_name == "create_task":
         invalidate_mcp_cache()
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
-        rl = args.get("rl", DEFAULT_INSTANCE_CODE)
         project_id = args["projectId"]
+        domain_id = resolve_domain_id(args.get("domainId"), project_id, args.get("parentTaskId"))
+        rl = await resolve_project_rl(project_id, args.get("rl"), cookie_override)
         payload = build_task_create_payload(
             project_id, args["title"], args.get("htmlText", ""), args.get("parentTaskId"), domain_id, rl
         )
@@ -648,8 +656,8 @@ async def async_execute_tool(
 
     elif tool_name == "update_task_content":
         invalidate_mcp_cache()
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
         task_id = args["taskId"]
+        domain_id = resolve_domain_id(args.get("domainId"), task_id)
         payload = {
             "content": {
                 "htmlText": args["htmlText"],
@@ -663,8 +671,8 @@ async def async_execute_tool(
 
     elif tool_name == "delete_task":
         invalidate_mcp_cache()
-        domain_id = args.get("domainId", DEFAULT_DOMAIN_ID)
         task_id = args["taskId"]
+        domain_id = resolve_domain_id(args.get("domainId"), task_id)
         res = await async_api_request("DELETE", f"/rd/{domain_id}/api/v1/tasks/{task_id}", cookie_override=cookie_override)
         msg = "Task deleted successfully" if res.get("status") == 200 else f"Failed to delete task: {res.get('error')}"
         return _format_result(msg, is_error=res.get("status") != 200)

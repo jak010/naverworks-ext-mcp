@@ -7,5 +7,5 @@ class ProjectCreateRequest(BaseModel):
     projectName: str = Field(..., description="프로젝트 이름", json_schema_extra={"example": "신규 서비스 개발"})
     projectColor: str = Field(default="#ed7200", description="프로젝트 색상 (HEX)", json_schema_extra={"example": "#ed7200"})
     projectType: str = Field(default="OPEN", description="프로젝트 유형 (OPEN 또는 CONFIDENTIAL)", json_schema_extra={"example": "OPEN"})
-    domainId: Optional[str] = Field(default=None, description="도메인/테넌트 ID (생략 시 기본값 사용)")
+    domainId: Optional[str] = Field(default=None, description="도메인/테넌트 ID (생략 시 ID에서 자동 추출, 없으면 서버 기본값)")
 

@@ -203,7 +203,11 @@ LLM의 함수 호출(function calling)에 연결할 때는 `GET /mcp/tools`가 �
 | `update_task_content` | 태스크 본문 수정 | `taskId`, `htmlText` |
 | `delete_task` | 태스크 영구 삭제 | `taskId` |
 
-`domainId`·`instanceCode`(`rl`)는 생략하면 서버 설정값(`NAVERWORKS_DOMAIN_ID`, `NAVERWORKS_INSTANCE_CODE`)을 사용합니다. 이 서비스는 단일 조직용으로 운영됩니다.
+`domainId`·`instanceCode`(`rl`)는 보통 생략합니다. 직접 넣은 값이 항상 우선합니다.
+
+- **`domainId`**: 인자로 받은 ID(`spaceId`, `projectId`, `taskId`, `parentTaskId`)의 `s-/p-/t-{domainId}-{uuid}` 형식에서 추출합니다. ID가 없는 `list_spaces`·`create_space`만 서버 설정값 `NAVERWORKS_DOMAIN_ID`를 씁니다.
+- **`rl`**: 스페이스·프로젝트 응답의 `rl`을 프로젝트별로 기억합니다. 모르는 프로젝트에 쓰기 요청(`create_task`, `delete_project`)을 보낼 때는 프로젝트 조회를 1회 먼저 실행해 확인합니다. 조회는 `rl`이 달라도 동작하므로 `get_project`는 추가 호출이 없습니다. 확인에 실패하면 `NAVERWORKS_INSTANCE_CODE`를 씁니다.
+- 따라서 ID를 받는 도구는 다른 조직의 ID여도 맞는 값으로 동작합니다. 진입점(`list_spaces`)의 조직 자동 결정은 아직 지원하지 않습니다.
 
 ---
 

@@ -6,6 +6,7 @@ import pytest
 from app import config
 from app.core import cookie, client as nw_client
 from app.core.mcp_spec import invalidate_mcp_cache
+from app.core.ids import clear_rl_cache
 
 
 @pytest.fixture(autouse=True)
@@ -20,8 +21,10 @@ def isolated_cookie_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "OAUTH_ENABLED", False, raising=False)
     monkeypatch.setattr(cookie, "_jar_cache", None)
     invalidate_mcp_cache()
+    clear_rl_cache()
     yield
     invalidate_mcp_cache()
+    clear_rl_cache()
 
 
 @pytest.fixture
