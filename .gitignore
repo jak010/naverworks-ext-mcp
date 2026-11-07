@@ -1,0 +1,43 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# 테스트 / 도구 캐시
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# 환경 변수 / 비밀 값 (쿠키 등) — 예시 파일만 커밋
+.env
+.env.*
+!.env.example
+*.log
+
+# 네이버웍스 쿠키 파일 (실수로 저장소 안에 만든 경우 대비)
+cookie.txt
+*cookies*.txt
+
+# 쿠키가 들어갈 수 있는 프로젝트 단위 MCP 클라이언트 설정
+.cursor/mcp.json
+.vscode/mcp.json
+.mcp.json
+opencode.json
+opencode.jsonc
+
+# 에디터 / AI 도구 로컬 설정
+.idea/
+.vscode/
+.claude/
+.serena/
+
+# OS
+.DS_Store
+Thumbs.db
