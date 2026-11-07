@@ -11,7 +11,7 @@ from app.config import (
     DEFAULT_INSTANCE_CODE,
 )
 from app.core.client import async_api_request
-from app.core.payloads import build_task_create_payload
+from app.core.payloads import build_task_comment_payload, build_task_comment_update_payload, build_task_create_payload
 from app.core.cookie import (
     login_via_browser,
     read_user_cookie_path,
@@ -19,12 +19,14 @@ from app.core.cookie import (
     describe_cookie_source,
 )
 from app.core.auth_context import set_current_user_cookie
-from app.core.ids import DomainIdUnknown, ensure_domain_id, resolve_project_rl, remember_rl, cached_rl
+from app.core.ids import DomainIdUnknown, ensure_domain_id, resolve_project_rl, resolve_task_rl, remember_rl, cached_rl
 
 # 응답 크기 제한 (LLM 토큰 절감)
 LIST_TASKS_DEFAULT_LIMIT = 50
 LIST_TASKS_MAX_LIMIT = 200
 PREVIEW_CHARS = 80
+COMMENTS_DEFAULT_LIMIT = 30
+COMMENTS_MAX_LIMIT = 200
 ERROR_TEXT_MAX = 500
 
 # 단기 인메모리 캐시 (LLM의 다중 연속 도구 호출 시 네트워크 지연 0초 실현)
@@ -228,6 +230,61 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
                 "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["taskId"]
+        }
+    },
+    {
+        "name": "list_task_comments",
+        "description": "List comments on a task (author, text, time). Paginated: check 'total'/'hasMore' and use offset for more.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "taskId": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": COMMENTS_MAX_LIMIT, "description": f"Max comments to return (default {COMMENTS_DEFAULT_LIMIT})."},
+                "offset": {"type": "integer", "minimum": 0, "description": "Number of comments to skip (default 0)."},
+                "rl": {"type": "string", "description": "Optional. Resolved automatically from the task; override only if needed."}
+            },
+            "required": ["taskId"]
+        }
+    },
+    {
+        "name": "create_task_comment",
+        "description": "Add a comment to a task as the current user. Set parentTaskCommentId to reply to an existing comment (IDs from list_task_comments).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "taskId": {"type": "string"},
+                "htmlText": {"type": "string", "description": "Comment text (plain text or simple HTML)."},
+                "parentTaskCommentId": {"type": "string", "description": "Optional. Comment ID to reply to."},
+                "rl": {"type": "string", "description": "Optional. Resolved automatically from the task; override only if needed."}
+            },
+            "required": ["taskId", "htmlText"]
+        }
+    },
+    {
+        "name": "update_task_comment",
+        "description": "Replace the text of an existing task comment (whole content is replaced). Comment IDs (tc-...) come from list_task_comments.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "taskId": {"type": "string"},
+                "taskCommentId": {"type": "string", "description": "Comment ID to edit (tc-...)."},
+                "htmlText": {"type": "string", "description": "New comment text (plain text or simple HTML)."},
+                "rl": {"type": "string", "description": "Optional. Resolved automatically from the task; override only if needed."}
+            },
+            "required": ["taskId", "taskCommentId", "htmlText"]
+        }
+    },
+    {
+        "name": "delete_task_comment",
+        "description": "Delete a comment from a task permanently. Comment IDs (tc-...) come from list_task_comments.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "taskId": {"type": "string"},
+                "taskCommentId": {"type": "string", "description": "Comment ID to delete (tc-...)."},
+                "rl": {"type": "string", "description": "Optional. Resolved automatically from the task; override only if needed."}
+            },
+            "required": ["taskId", "taskCommentId"]
         }
     },
     {
@@ -439,6 +496,79 @@ def _slim_task(data: Any) -> Any:
         "created": data.get("created"),
         "modified": data.get("modified"),
     }
+
+
+_COMMENT_LIST_KEYS = ("taskComments", "comments", "commentList", "contents", "items", "list", "data")
+
+
+def _comment_list(data: Any) -> Optional[List[Any]]:
+    """댓글 응답에서 댓글 배열을 찾습니다. (배열 자체, 또는 흔한 래핑 키 / 첫 번째 배열 값)"""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in _COMMENT_LIST_KEYS:
+            if isinstance(data.get(key), list):
+                return data[key]
+        for v in data.values():
+            if isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+                return v
+    return None
+
+
+def _first(d: Dict[str, Any], *keys: str) -> Any:
+    for k in keys:
+        v = d.get(k)
+        if v not in (None, "", [], {}):
+            return v
+    return None
+
+
+def _author(c: Dict[str, Any]) -> Any:
+    who = _first(c, "writer", "author", "creator", "createdBy", "user")
+    if isinstance(who, dict):
+        return _first(who, "name", "userName", "displayName", "nickName", "userId", "id") or who
+    return who or _first(c, "writerName", "authorName", "userName", "writerId", "creatorId", "userId", "actionUserId")
+
+
+def _comment_text(c: Dict[str, Any]) -> str:
+    content = _first(c, "content", "comment", "body", "text", "message")
+    if isinstance(content, dict):
+        return _content_text(content)
+    if isinstance(content, str):
+        return _html_to_text(content) if "<" in content else content.strip()
+    return _first(c, "plainText", "htmlText") or ""
+
+
+def _slim_comment(c: Any) -> Any:
+    if not isinstance(c, dict):
+        return c
+    return {
+        "commentId": _first(c, "taskCommentId", "commentId", "id"),
+        "author": _author(c),
+        "text": _comment_text(c),
+        "created": _first(c, "created", "createdAt", "createDate", "registeredAt"),
+        "modified": _first(c, "modified", "modifiedAt", "updatedAt"),
+        "parentCommentId": _first(c, "parentTaskCommentId", "parentCommentId", "parentId"),
+    }
+
+
+def _slim_comments(data: Any, args: Dict[str, Any]) -> Any:
+    """댓글 목록 경량화 + 페이지 처리. 형식을 모르면 빈 값을 뺀 원본을 돌려줍니다."""
+    items = _comment_list(data)
+    if items is None:
+        return data
+    try:
+        limit = int(args.get("limit") or COMMENTS_DEFAULT_LIMIT)
+    except (TypeError, ValueError):
+        limit = COMMENTS_DEFAULT_LIMIT
+    limit = max(1, min(limit, COMMENTS_MAX_LIMIT))
+    try:
+        offset = max(0, int(args.get("offset") or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    page = [_slim_comment(c) for c in items[offset:offset + limit]]
+    return {"total": len(items), "offset": offset, "returned": len(page),
+            "hasMore": offset + len(page) < len(items), "comments": page}
 
 
 def get_tools_spec() -> List[Dict[str, Any]]:
@@ -761,6 +891,63 @@ async def _execute_tool(
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/tasks/{task_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
             return _format_result(_slim_task(res.get("data")))
+        return _error_result(res)
+
+    elif tool_name == "list_task_comments":
+        task_id = args["taskId"]
+        domain_id = await ensure_domain_id(None, task_id, cookie=effective_cookie)
+        rl = await resolve_task_rl(task_id, args.get("rl"), domain_id, cookie_override)
+        res = await async_api_request("GET", f"/rl/{rl}/api/v1/tasks/{task_id}/task-comments", cookie_override=cookie_override)
+        if res.get("status") == 200:
+            return _format_result(_slim_comments(res.get("data"), args))
+        return _error_result(res)
+
+    elif tool_name == "create_task_comment":
+        invalidate_mcp_cache()
+        task_id = args["taskId"]
+        text = str(args.get("htmlText") or "").strip()
+        if not text:
+            return _format_result({"error": "INVALID_ARGUMENT", "message": "htmlText(댓글 내용)가 비어 있습니다."}, is_error=True)
+        domain_id = await ensure_domain_id(None, task_id, cookie=effective_cookie)
+        rl = await resolve_task_rl(task_id, args.get("rl"), domain_id, cookie_override)
+        payload = build_task_comment_payload(text, args.get("parentTaskCommentId"))
+        res = await async_api_request("POST", f"/rl/{rl}/api/v1/tasks/{task_id}/task-comments", payload, cookie_override=cookie_override)
+        if res.get("status") in (200, 201):
+            data = res.get("data")
+            created = _slim_comment(data.get("taskComment") if isinstance(data, dict) and isinstance(data.get("taskComment"), dict) else data)
+            return _format_result({"created": True, "taskId": task_id, "comment": created} if isinstance(created, dict) else {"created": True, "taskId": task_id})
+        return _error_result(res)
+
+    elif tool_name == "update_task_comment":
+        invalidate_mcp_cache()
+        task_id = args["taskId"]
+        comment_id = str(args.get("taskCommentId") or "").strip()
+        text = str(args.get("htmlText") or "").strip()
+        if not comment_id or "/" in comment_id:
+            return _format_result({"error": "INVALID_ARGUMENT", "message": "taskCommentId가 비어 있거나 올바르지 않습니다."}, is_error=True)
+        if not text:
+            return _format_result({"error": "INVALID_ARGUMENT", "message": "htmlText(댓글 내용)가 비어 있습니다."}, is_error=True)
+        domain_id = await ensure_domain_id(None, task_id, cookie=effective_cookie)
+        rl = await resolve_task_rl(task_id, args.get("rl"), domain_id, cookie_override)
+        res = await async_api_request(
+            "POST", f"/rl/{rl}/api/v1/tasks/{task_id}/task-comments/{comment_id}/modify-task-comment-content",
+            build_task_comment_update_payload(text), cookie_override=cookie_override,
+        )
+        if res.get("status") in (200, 201, 204):
+            return _format_result({"updated": True, "taskId": task_id, "taskCommentId": comment_id, "text": _html_to_text(text) if "<" in text else text})
+        return _error_result(res)
+
+    elif tool_name == "delete_task_comment":
+        invalidate_mcp_cache()
+        task_id = args["taskId"]
+        comment_id = str(args.get("taskCommentId") or "").strip()
+        if not comment_id or "/" in comment_id:
+            return _format_result({"error": "INVALID_ARGUMENT", "message": "taskCommentId가 비어 있거나 올바르지 않습니다."}, is_error=True)
+        domain_id = await ensure_domain_id(None, task_id, cookie=effective_cookie)
+        rl = await resolve_task_rl(task_id, args.get("rl"), domain_id, cookie_override)
+        res = await async_api_request("DELETE", f"/rl/{rl}/api/v1/tasks/{task_id}/task-comments/{comment_id}", cookie_override=cookie_override)
+        if res.get("status") in (200, 202, 204):
+            return _format_result({"deleted": True, "taskId": task_id, "taskCommentId": comment_id})
         return _error_result(res)
 
     elif tool_name == "create_task":

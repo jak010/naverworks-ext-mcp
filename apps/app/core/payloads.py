@@ -29,3 +29,19 @@ def build_task_create_payload(
         ],
         "parentTaskId": parent_task_id,
     }
+
+
+def build_task_comment_payload(html_text: str, parent_comment_id: Optional[str] = None) -> Dict[str, Any]:
+    """태스크 댓글 작성 본문 (POST /rl/{rl}/api/v1/tasks/{taskId}/task-comments).
+    parentTaskCommentId 를 주면 해당 댓글의 답글이 됩니다. 작성자는 요청 쿠키의 세션 사용자입니다."""
+    return {
+        "parentTaskCommentId": parent_comment_id or None,
+        "content": {"htmlText": html_text, "inlineImages": [], "mentionedUserIds": []},
+        "files": [],
+    }
+
+
+def build_task_comment_update_payload(html_text: str) -> Dict[str, Any]:
+    """태스크 댓글 내용 수정 본문
+    (POST /rl/{rl}/api/v1/tasks/{taskId}/task-comments/{taskCommentId}/modify-task-comment-content)"""
+    return {"content": {"htmlText": html_text, "inlineImages": [], "mentionedUserIds": []}}

@@ -15,7 +15,7 @@ NAVER WORKS MCP 서버를 **실행**하고, MCP 클라이언트·에이전트 �
 | `multi_user` | HTTP 서버(`apps/main.py`, `make run`, Docker) | **요청/세션별 사용자 쿠키만** 사용. 쿠키가 없으면 `/mcp/rpc`는 HTTP 401(OAuth 로그인 유도), 그 밖의 경로는 `UNAUTHORIZED` |
 | `local` | stdio 서버(`apps/server.py`), CLI(`apps/cli.py`) | 사용자 쿠키 → `NAVERWORKS_COOKIE` → `NAVERWORKS_COOKIE_PATH` → 로컬 쿠키 파일 `~/.config/naverworks/proj_cookies.txt` |
 
-`NAVERWORKS_AUTH_MODE` 환경 변수로 바꿀 수 있습니다. 브라우저 로그인 관련 설정은 `NAVERWORKS_OAUTH_ENABLED`(기본 `true`)와 `PUBLIC_BASE_URL`입니다 ([2.1 OAuth](#21-브라우저-로그인-oauth)). 자세한 설정 항목은 [README의 환경 변수](../README.md#5-환경-변수-설정-선택-사항)를 참고하세요.
+`NAVERWORKS_AUTH_MODE` 환경 변수로 바꿀 수 있습니다. 브라우저 로그인 관련 설정은 `NAVERWORKS_OAUTH_ENABLED`(기본 `true`)와 `PUBLIC_BASE_URL`입니다 ([2.1 OAuth](#21-브라우저-로그인-oauth)). 자세한 설정 항목은 [README의 환경 변수](../README.md#62-환경-변수)를 참고하세요.
 
 ### 1.2 설치
 
@@ -86,7 +86,7 @@ make docker-up       # 운영: Docker Compose (multi_user) — deploy/docker-com
 - 끄려면 `NAVERWORKS_OAUTH_ENABLED=false` (쿠키 없는 `/mcp/rpc` 요청도 200으로 처리하고 도구가 `UNAUTHORIZED`를 반환하는 이전 동작).
 - `local` 모드에서는 로컬 쿠키 파일 등 쿠키를 하나도 찾지 못한 경우에만 401을 돌려줍니다.
 
-REST API(`/api/v1/spaces`, `/api/v1/projects`, `/api/v1/tasks`)도 같은 쿠키 헤더로 인증합니다. 전체 목록은 [README의 API 엔드포인트 요약](../README.md#4-api-엔드포인트-요약)을 참고하세요.
+REST API(`/api/v1/spaces`, `/api/v1/projects`, `/api/v1/tasks`)도 같은 쿠키 헤더로 인증합니다. 전체 목록은 [README의 API 엔드포인트 요약](../README.md#64-rest-api)을 참고하세요.
 
 ---
 
@@ -182,7 +182,7 @@ LLM의 함수 호출(function calling)에 연결할 때는 `GET /mcp/tools`가 �
 
 ## 6. 도구 목록
 
-두 모드 모두 아래 16개가 제공됩니다. `login_naverworks`만 모드에 따라 동작이 다릅니다.
+두 모드 모두 아래 20개가 제공됩니다. `login_naverworks`만 모드에 따라 동작이 다릅니다.
 
 | 도구 | 설명 | 주요 파라미터 |
 |---|---|---|
@@ -199,6 +199,10 @@ LLM의 함수 호출(function calling)에 연결할 때는 `GET /mcp/tools`가 �
 | `delete_project` | 프로젝트 영구 삭제 | `projectId` |
 | `list_tasks` | 프로젝트 소속 태스크 목록. 요약 형태이고 `{total, offset, returned, hasMore, tasks}`로 돌려줍니다. 기본 50개, 최대 200개까지 받고, `status` 필터를 쓸 수 있습니다. 본문 미리보기는 `includePreview`일 때만 넣습니다 | `projectId` (선택: `status`, `limit`, `offset`, `includePreview`) |
 | `get_task` | 태스크 상세 (본문, 상태, 하위 태스크 ID `subTaskIds`) | `taskId` |
+| `list_task_comments` | 태스크 댓글 목록. 작성자·본문·시간 요약을 `{total, offset, returned, hasMore, comments}` 형태로 돌려줍니다. 기본 30개, 최대 200개. `rl`은 태스크에서 자동 확인 | `taskId` (선택: `limit`, `offset`, `rl`) |
+| `create_task_comment` | 태스크에 댓글 작성. 작성자는 요청 쿠키의 사용자입니다. `parentTaskCommentId`를 주면 답글이 됩니다 | `taskId`, `htmlText` (선택: `parentTaskCommentId`, `rl`) |
+| `update_task_comment` | 태스크 댓글 내용을 새 내용으로 교체 | `taskId`, `taskCommentId`, `htmlText` (선택: `rl`) |
+| `delete_task_comment` | 태스크 댓글 영구 삭제 | `taskId`, `taskCommentId` (선택: `rl`) |
 | `create_task` | 태스크 또는 하위 태스크 생성 | `projectId`, `title`, `htmlText`, `parentTaskId` |
 | `update_task_content` | 태스크 본문 수정 | `taskId`, `htmlText` |
 | `delete_task` | 태스크 영구 삭제 | `taskId` |
