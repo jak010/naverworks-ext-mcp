@@ -9,7 +9,6 @@ services:
     environment:
       - PORT=9050
       - HOST=0.0.0.0
-      - NAVERWORKS_DOMAIN_ID=300098158
       - NAVERWORKS_INSTANCE_CODE=24101
       # 익명 다중 사용자 서비스: 각 사용자가 X-Naverworks-Cookie 헤더 등으로 본인 쿠키를 제공 (서버 쿠키 미사용)
       - NAVERWORKS_AUTH_MODE=multi_user

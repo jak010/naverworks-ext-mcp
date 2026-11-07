@@ -47,7 +47,7 @@ NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Pro
 | **작업(Task)** | 프로젝트 소속 작업 전체 조회 | `GET` | `/rd/{domainId}/api/v1/tasks?projectId={projectId}` |
 
 > [!IMPORTANT]
-> - **스페이스/프로젝트/작업 생성, 조회, 수정, 삭제**: Path prefix로 **`/rd/{domainId}/`** 사용 (`domainId` 예: `300098158`)
+> - **스페이스/프로젝트/작업 생성, 조회, 수정, 삭제**: Path prefix로 **`/rd/{domainId}/`** 사용 (`domainId` 예: `123456789`)
 > - **프로젝트 상세 조회 및 프로젝트 삭제**: Path prefix로 **`/rl/{instanceCode}/`** 사용 (`rl` 예: `24101`, 스페이스/프로젝트 조회 결과의 `rl` 값)
 
 ### 2.1 식별자와 경로 값 ✅
@@ -94,7 +94,7 @@ NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Pro
 - **Request Body**:
 ```json
 {
-  "spaceId": "s-300098158-4400b350-7c86-40db-b5cb-9813fcbfac1a",
+  "spaceId": "s-123456789-4400b350-7c86-40db-b5cb-9813fcbfac1a",
   "projectName": "신규 프로젝트",
   "projectColor": "#ed7200",
   "projectType": "OPEN",
@@ -118,7 +118,7 @@ NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Pro
 - **Request Body**:
 ```json
 {
-  "projectId": "p-300098158-56a66c58-c478-400a-9698-2f0199bb9b07",
+  "projectId": "p-123456789-56a66c58-c478-400a-9698-2f0199bb9b07",
   "title": "신규 작업 제목",
   "taskStatusType": "OPEN",
   "content": { "htmlText": "", "mentionedUserIds": [], "inlineImages": [] },
@@ -127,8 +127,8 @@ NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Pro
     {
       "taggedProjectKey": {
         "rl": "24101",
-        "domainId": "300098158",
-        "projectId": "p-300098158-56a66c58-c478-400a-9698-2f0199bb9b07"
+        "domainId": "123456789",
+        "projectId": "p-123456789-56a66c58-c478-400a-9698-2f0199bb9b07"
       }
     }
   ],

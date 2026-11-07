@@ -90,7 +90,7 @@ def test_full_browser_login_flow(client, mock_upstream):
     assert tok.status_code == 200
     access = tok.json()["access_token"]
     # Bearer 토큰 형식(RFC 6750 b64token): 공백·';' 없이 nwc_ + base64url
-    assert re.fullmatch(r"nwc_[A-Za-z0-9_-]+", access)
+    assert re.fullmatch(r"nw[ct]_[A-Za-z0-9_-]+", access)
     assert USER not in access
 
     # 인가 코드는 1회용

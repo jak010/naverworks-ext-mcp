@@ -1,4 +1,5 @@
 import os
+import json
 import base64
 import binascii
 import sys
@@ -327,27 +328,59 @@ def describe_cookie_source() -> dict:
 
 
 # ------------------------------------------------------------------------------
-# OAuth access token <-> 쿠키
-# 쿠키 원문에는 공백과 ';'이 있어 Bearer 토큰 형식(RFC 6750 b64token)에 맞지 않으므로
-# base64url(패딩 없음)로 감싸 접두어를 붙여 발급합니다.
+# OAuth access token <-> 쿠키 (+ 조직 ID)
+# 쿠키 원문에는 공백과 ';'이 있어 Bearer 토큰 형식(RFC 6750 b64token)에 맞지 않으므로 base64url(패딩 없음)로 감쌉니다.
+#  - nwt_<base64url(JSON {"c": 쿠키, "d": 조직 ID})> : 로그인 때 조직 ID까지 받은 경우 (요청마다 조직 ID가 함께 전달됨)
+#  - nwc_<base64url(쿠키)>                           : 쿠키만 있는 경우 (이전 형식 호환)
 # ------------------------------------------------------------------------------
 
 ACCESS_TOKEN_PREFIX = "nwc_"
+ACCESS_TOKEN_WITH_DOMAIN_PREFIX = "nwt_"
 
 
-def encode_access_token(cookie: str) -> str:
-    raw = base64.urlsafe_b64encode(cookie.encode("utf-8")).rstrip(b"=").decode("ascii")
-    return ACCESS_TOKEN_PREFIX + raw
+def _b64e(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _b64d(body: str) -> Optional[bytes]:
+    try:
+        return base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))
+    except (binascii.Error, ValueError):
+        return None
+
+
+def encode_access_token(cookie: str, domain_id: Optional[str] = None) -> str:
+    if domain_id:
+        payload = json.dumps({"c": cookie, "d": str(domain_id)}, ensure_ascii=False, separators=(",", ":"))
+        return ACCESS_TOKEN_WITH_DOMAIN_PREFIX + _b64e(payload.encode("utf-8"))
+    return ACCESS_TOKEN_PREFIX + _b64e(cookie.encode("utf-8"))
+
+
+def parse_access_token(token: str) -> "tuple[Optional[str], Optional[str]]":
+    """발급한 토큰을 (쿠키, 조직 ID)로 복원합니다. 형식이 아니거나 손상되었으면 (None, None)."""
+    if not token:
+        return None, None
+    cookie: Optional[str] = None
+    domain_id: Optional[str] = None
+    try:
+        if token.startswith(ACCESS_TOKEN_WITH_DOMAIN_PREFIX):
+            raw = _b64d(token[len(ACCESS_TOKEN_WITH_DOMAIN_PREFIX):])
+            data = json.loads(raw.decode("utf-8")) if raw else None
+            if isinstance(data, dict):
+                cookie = str(data.get("c") or "")
+                d = str(data.get("d") or "")
+                domain_id = d if d.isdigit() else None
+        elif token.startswith(ACCESS_TOKEN_PREFIX):
+            raw = _b64d(token[len(ACCESS_TOKEN_PREFIX):])
+            cookie = raw.decode("utf-8") if raw else None
+    except (UnicodeDecodeError, ValueError):
+        return None, None
+    cookie = (cookie or "").strip()
+    if "=" not in cookie:
+        return None, None
+    return cookie, domain_id
 
 
 def decode_access_token(token: str) -> Optional[str]:
-    """`nwc_` 토큰이면 쿠키 문자열로 복원합니다. 형식이 아니거나 손상되었으면 None."""
-    if not token or not token.startswith(ACCESS_TOKEN_PREFIX):
-        return None
-    body = token[len(ACCESS_TOKEN_PREFIX):]
-    try:
-        cookie = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8")
-    except (binascii.Error, ValueError, UnicodeDecodeError):
-        return None
-    cookie = cookie.strip()
-    return cookie if "=" in cookie else None
+    """발급한 토큰에서 쿠키만 복원합니다."""
+    return parse_access_token(token)[0]

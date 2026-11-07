@@ -19,7 +19,7 @@ from app.core.cookie import (
     describe_cookie_source,
 )
 from app.core.auth_context import set_current_user_cookie
-from app.core.ids import resolve_domain_id, resolve_project_rl, remember_rl, cached_rl
+from app.core.ids import DomainIdUnknown, ensure_domain_id, resolve_project_rl, remember_rl, cached_rl
 
 # 응답 크기 제한 (LLM 토큰 절감)
 LIST_TASKS_DEFAULT_LIMIT = 50
@@ -110,7 +110,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "domainId": {"type": "string", "description": "Optional. Defaults to the server setting (NAVERWORKS_DOMAIN_ID)."}
+                "domainId": {"type": "string", "description": "Optional. Resolved automatically from your NAVER WORKS session; set only if asked."}
             }
         }
     },
@@ -134,7 +134,7 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
             "properties": {
                 "spaceName": {"type": "string"},
                 "spaceColor": {"type": "string", "default": "#4694e5"},
-                "domainId": {"type": "string", "description": "Optional. Defaults to the server setting (NAVERWORKS_DOMAIN_ID)."}
+                "domainId": {"type": "string", "description": "Optional. Resolved automatically from your NAVER WORKS session; set only if asked."}
             },
             "required": ["spaceName"]
         }
@@ -567,6 +567,18 @@ async def async_execute_tool(
     args: Dict[str, Any],
     cookie_override: Optional[str] = None
 ) -> Dict[str, Any]:
+    """도구 실행. 조직 ID를 알 수 없으면 LLM이 사용자에게 되물을 수 있도록 안내 결과를 돌려줍니다."""
+    try:
+        return await _execute_tool(tool_name, args, cookie_override)
+    except DomainIdUnknown as e:
+        return _format_result({"error": "DOMAIN_ID_UNKNOWN", "message": str(e)}, is_error=True)
+
+
+async def _execute_tool(
+    tool_name: str,
+    args: Dict[str, Any],
+    cookie_override: Optional[str] = None
+) -> Dict[str, Any]:
     """비동기 MCP Tool 호출 핸들러 (커넥션 풀 + 단기 캐시 + 데이터 경량화 + 사용자별 쿠키 오버라이드 지원)"""
     # 0. 인증 및 세션 관리 도구
     if tool_name == "set_user_cookie":
@@ -632,7 +644,7 @@ async def async_execute_tool(
         cached = get_cached_result(cache_key)
         if cached:
             return _format_result(cached)
-        domain_id = resolve_domain_id(args.get("domainId"))
+        domain_id = await ensure_domain_id(args.get("domainId"), cookie=effective_cookie)
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/spaces", cookie_override=cookie_override)
         if res.get("status") == 200:
             remember_rl(res.get("data"))
@@ -643,7 +655,7 @@ async def async_execute_tool(
 
     elif tool_name == "get_space":
         space_id = args["spaceId"]
-        domain_id = resolve_domain_id(args.get("domainId"), space_id)
+        domain_id = await ensure_domain_id(args.get("domainId"), space_id, cookie=effective_cookie)
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/spaces/{space_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
             remember_rl(res.get("data"))
@@ -652,7 +664,7 @@ async def async_execute_tool(
 
     elif tool_name == "create_space":
         invalidate_mcp_cache()
-        domain_id = resolve_domain_id(args.get("domainId"))
+        domain_id = await ensure_domain_id(args.get("domainId"), cookie=effective_cookie)
         payload = {
             "spaceName": args["spaceName"],
             "spaceColor": args.get("spaceColor", "#4694e5"),
@@ -666,7 +678,7 @@ async def async_execute_tool(
     elif tool_name == "delete_space":
         invalidate_mcp_cache()
         space_id = args["spaceId"]
-        domain_id = resolve_domain_id(args.get("domainId"), space_id)
+        domain_id = await ensure_domain_id(args.get("domainId"), space_id, cookie=effective_cookie)
         res = await async_api_request("DELETE", f"/rd/{domain_id}/api/v1/spaces/{space_id}", cookie_override=cookie_override)
         msg = "Space deleted successfully" if res.get("status") == 200 else f"Failed to delete space: {_short_error(res.get('error'))}"
         return _format_result(msg, is_error=res.get("status") != 200)
@@ -677,7 +689,7 @@ async def async_execute_tool(
         if cached:
             return _format_result(cached)
         space_id = args["spaceId"]
-        domain_id = resolve_domain_id(args.get("domainId"), space_id)
+        domain_id = await ensure_domain_id(args.get("domainId"), space_id, cookie=effective_cookie)
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/projects?spaceId={space_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
             remember_rl(res.get("data"))
@@ -703,7 +715,7 @@ async def async_execute_tool(
 
     elif tool_name == "create_project":
         invalidate_mcp_cache()
-        domain_id = resolve_domain_id(args.get("domainId"), args["spaceId"])
+        domain_id = await ensure_domain_id(args.get("domainId"), args["spaceId"], cookie=effective_cookie)
         payload = {
             "spaceId": args["spaceId"],
             "projectName": args["projectName"],
@@ -728,7 +740,7 @@ async def async_execute_tool(
     # 3. 태스크 조회 및 관리
     elif tool_name == "list_tasks":
         project_id = args["projectId"]
-        domain_id = resolve_domain_id(args.get("domainId"), project_id)
+        domain_id = await ensure_domain_id(args.get("domainId"), project_id, cookie=effective_cookie)
         # 전체 목록을 캐시하고 필터·페이지는 매번 적용 (offset만 바꾼 연속 호출은 네트워크 호출 없음)
         list_key = f"list_tasks:{_cookie_fingerprint(effective_cookie)}:{domain_id}:{project_id}"
         cached = get_cached_result(list_key)
@@ -745,7 +757,7 @@ async def async_execute_tool(
 
     elif tool_name == "get_task":
         task_id = args["taskId"]
-        domain_id = resolve_domain_id(args.get("domainId"), task_id)
+        domain_id = await ensure_domain_id(args.get("domainId"), task_id, cookie=effective_cookie)
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/tasks/{task_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
             return _format_result(_slim_task(res.get("data")))
@@ -754,7 +766,7 @@ async def async_execute_tool(
     elif tool_name == "create_task":
         invalidate_mcp_cache()
         project_id = args["projectId"]
-        domain_id = resolve_domain_id(args.get("domainId"), project_id, args.get("parentTaskId"))
+        domain_id = await ensure_domain_id(args.get("domainId"), project_id, args.get("parentTaskId"), cookie=effective_cookie)
         rl = await resolve_project_rl(project_id, args.get("rl"), cookie_override)
         payload = build_task_create_payload(
             project_id, args["title"], args.get("htmlText", ""), args.get("parentTaskId"), domain_id, rl
@@ -765,7 +777,7 @@ async def async_execute_tool(
     elif tool_name == "update_task_content":
         invalidate_mcp_cache()
         task_id = args["taskId"]
-        domain_id = resolve_domain_id(args.get("domainId"), task_id)
+        domain_id = await ensure_domain_id(args.get("domainId"), task_id, cookie=effective_cookie)
         payload = {
             "content": {
                 "htmlText": args["htmlText"],
@@ -780,7 +792,7 @@ async def async_execute_tool(
     elif tool_name == "delete_task":
         invalidate_mcp_cache()
         task_id = args["taskId"]
-        domain_id = resolve_domain_id(args.get("domainId"), task_id)
+        domain_id = await ensure_domain_id(args.get("domainId"), task_id, cookie=effective_cookie)
         res = await async_api_request("DELETE", f"/rd/{domain_id}/api/v1/tasks/{task_id}", cookie_override=cookie_override)
         msg = "Task deleted successfully" if res.get("status") == 200 else f"Failed to delete task: {_short_error(res.get('error'))}"
         return _format_result(msg, is_error=res.get("status") != 200)

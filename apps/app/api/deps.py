@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional
 from fastapi import HTTPException, Request
-from app.core.cookie import decode_access_token, read_user_cookie_path
+from app.core.cookie import parse_access_token, read_user_cookie_path
+from app.core.ids import remember_user_domain
 from app.core.auth_context import set_current_user_cookie
 
 
@@ -16,6 +17,16 @@ def handle_response(res: Dict[str, Any]):
 
 
 def extract_cookie_override(request: Request) -> Optional[str]:
+    """요청에서 사용자 쿠키를 꺼내고, 함께 온 조직 ID(로그인 토큰 또는 X-Naverworks-Domain-Id 헤더)를
+    그 사용자의 조직 ID로 기억합니다. (ID 없는 list_spaces 등이 조직 ID를 알 수 있도록)"""
+    cookie, domain_id = _extract_cookie_and_domain(request)
+    header_domain = (request.headers.get("x-naverworks-domain-id") or "").strip()
+    if cookie and (header_domain or domain_id):
+        remember_user_domain(cookie, header_domain or domain_id)
+    return cookie
+
+
+def _extract_cookie_and_domain(request: Request) -> "tuple[Optional[str], Optional[str]]":
     """요청 헤더(X-Naverworks-Cookie, X-Naverworks-Cookie-Path), Authorization, 또는 URL Query에서 해당 사용자의 쿠키를 추출합니다."""
     # 1~2. 파일 경로 입력은 서버 호스트의 파일을 가리키므로 local 모드에서만 허용 (read_user_cookie_path)
     # 1. 파일 경로 헤더 (X-Naverworks-Cookie-Path, X-Cookie-Path)
@@ -23,24 +34,24 @@ def extract_cookie_override(request: Request) -> Optional[str]:
     if header_path and header_path.strip():
         file_cookie = read_user_cookie_path(header_path.strip())
         if file_cookie:
-            return file_cookie
+            return file_cookie, None
 
     # 2. 파일 경로 쿼리 파라미터 (?cookie_path=..., ?cookie_file=...)
     query_path = request.query_params.get("cookie_path") or request.query_params.get("cookie_file")
     if query_path and query_path.strip():
         file_cookie = read_user_cookie_path(query_path.strip())
         if file_cookie:
-            return file_cookie
+            return file_cookie, None
 
     # 3. 직접 쿠키 값 헤더 (X-Naverworks-Cookie)
     header_cookie = request.headers.get("x-naverworks-cookie")
     if header_cookie and header_cookie.strip():
-        return header_cookie.strip()
+        return header_cookie.strip(), None
 
     # 4. 직접 쿠키 값 쿼리 파라미터 (?cookie=...)
     query_cookie = request.query_params.get("cookie")
     if query_cookie and query_cookie.strip():
-        return query_cookie.strip()
+        return query_cookie.strip(), None
 
     # 5. Authorization Bearer 헤더 (토큰에 쿠키 문자열이 포함된 경우)
     auth_header = request.headers.get("authorization")
@@ -48,20 +59,20 @@ def extract_cookie_override(request: Request) -> Optional[str]:
         auth_val = auth_header.strip()
         if auth_val.lower().startswith("bearer "):
             token = auth_val[7:].strip()
-            # OAuth로 발급한 토큰(nwc_ + base64url 쿠키)
-            decoded = decode_access_token(token)
+            # OAuth로 발급한 토큰 (nwt_: 쿠키+조직 ID, nwc_: 쿠키)
+            decoded, token_domain = parse_access_token(token)
             if decoded:
-                return decoded
+                return decoded, token_domain
             # 쿠키 원문을 그대로 Bearer로 보낸 경우 (이전 방식 호환)
             if "WORKS" in token or "NEO" in token or "=" in token:
-                return token
+                return token, None
 
     # 6. 표준 Cookie 헤더 (naverworks 관련 쿠키가 포함된 경우)
     raw_cookie = request.headers.get("cookie")
     if raw_cookie and ("works" in raw_cookie or "NEO" in raw_cookie or "NHN" in raw_cookie):
-        return raw_cookie.strip()
+        return raw_cookie.strip(), None
 
-    return None
+    return None, None
 
 
 async def bind_request_cookie(request: Request) -> None:

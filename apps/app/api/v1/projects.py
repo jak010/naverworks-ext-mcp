@@ -1,7 +1,7 @@
 from typing import Optional
 from fastapi import APIRouter, Query, Path
 from app.config import DEFAULT_INSTANCE_CODE
-from app.core.ids import resolve_domain_id, resolve_project_rl, remember_rl, cached_rl
+from app.core.ids import ensure_domain_id, resolve_project_rl, remember_rl, cached_rl
 from app.core.client import async_api_request
 from app.schemas.project import ProjectCreateRequest
 from app.api.deps import handle_response
@@ -15,7 +15,7 @@ async def list_projects(
     domain_id: Optional[str] = Query(None, description="도메인/테넌트 ID (생략 시 ID에서 자동 추출)")
 ):
     """특정 스페이스에 속한 활성 프로젝트 목록을 조회합니다."""
-    domain_id = resolve_domain_id(domain_id, space_id)
+    domain_id = await ensure_domain_id(domain_id, space_id)
     res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/projects?spaceId={space_id}")
     data = handle_response(res)
     remember_rl(data)
@@ -38,7 +38,7 @@ async def get_project(
 @router.post("", summary="신규 프로젝트 생성")
 async def create_project(payload: ProjectCreateRequest):
     """특정 스페이스 하위에 신규 프로젝트를 생성합니다."""
-    domain_id = resolve_domain_id(payload.domainId, payload.spaceId)
+    domain_id = await ensure_domain_id(payload.domainId, payload.spaceId)
     body = {
         "spaceId": payload.spaceId,
         "projectName": payload.projectName,

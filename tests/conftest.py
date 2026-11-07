@@ -1,4 +1,9 @@
 import json
+import os
+
+# 기존 테스트는 "운영자가 NAVERWORKS_DOMAIN_ID 를 설정한 서버" 기준으로 경로를 검증합니다.
+# (설정이 없을 때의 동적 탐색은 tests/test_domain_discovery.py 에서 검증)
+os.environ.setdefault("NAVERWORKS_DOMAIN_ID", "300098158")
 
 import httpx
 import pytest
@@ -6,7 +11,7 @@ import pytest
 from app import config
 from app.core import cookie, client as nw_client
 from app.core.mcp_spec import invalidate_mcp_cache
-from app.core.ids import clear_rl_cache
+from app.core.ids import clear_rl_cache, clear_user_domains
 
 
 @pytest.fixture(autouse=True)
@@ -22,9 +27,11 @@ def isolated_cookie_env(tmp_path, monkeypatch):
     monkeypatch.setattr(cookie, "_jar_cache", None)
     invalidate_mcp_cache()
     clear_rl_cache()
+    clear_user_domains()
     yield
     invalidate_mcp_cache()
     clear_rl_cache()
+    clear_user_domains()
 
 
 @pytest.fixture
