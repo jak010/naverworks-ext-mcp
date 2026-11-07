@@ -82,6 +82,15 @@ def mcp_call(client, name, args=None, cookie_value=None, **kw):
     return r.json()
 
 
+def _assert_single_target_call(calls):
+    """대상 요청 1회. 단, 쓰기 요청(create_task, delete_project)은 프로젝트의 rl 확인용 조회 1회가 앞설 수 있음.
+    모든 요청은 호출한 사용자의 쿠키로만 나가야 함."""
+    assert 1 <= len(calls) <= 2, calls
+    if len(calls) == 2:
+        assert calls[0]["method"] == "GET" and "/api/v1/projects/" in calls[0]["path"], calls[0]
+    assert len({c["cookie"] for c in calls}) == 1
+
+
 def result_payload(result):
     text = result["content"][0]["text"]
     try:
@@ -189,8 +198,8 @@ def test_unknown_auth_mode_fails_safe_to_multi_user(monkeypatch, server_has_cred
 def test_mcp_crud_forwards_callers_cookie(client, mock_upstream, server_has_credentials, tool, args, up_method, up_path):
     result = mcp_call(client, tool, args, cookie_value=USER_A)
     assert result["isError"] is False, result
-    assert len(mock_upstream) == 1
-    call = mock_upstream[0]
+    _assert_single_target_call(mock_upstream)
+    call = mock_upstream[-1]
     assert (call["method"], call["path"], call["cookie"]) == (up_method, up_path, USER_A)
     if up_method == "GET":
         assert owner_of(result_payload(result)) == USER_A
@@ -200,14 +209,14 @@ def test_mcp_crud_forwards_callers_cookie(client, mock_upstream, server_has_cred
 def test_rest_crud_forwards_callers_cookie(client, mock_upstream, server_has_credentials, method, url, body, up_method, up_path):
     r = client.request(method, url, json=body, headers=cookie_headers(USER_A))
     assert r.status_code == 200, r.text
-    assert len(mock_upstream) == 1
-    call = mock_upstream[0]
+    _assert_single_target_call(mock_upstream)
+    call = mock_upstream[-1]
     assert (call["method"], call["path"], call["cookie"]) == (up_method, up_path, USER_A)
 
 
 def test_create_task_payload_is_built_from_arguments(client, mock_upstream):
     mcp_call(client, "create_task", {"projectId": "p-1", "title": "제목", "htmlText": "<p>본문</p>", "parentTaskId": "t-0"}, cookie_value=USER_A)
-    body = mock_upstream[0]["json"]
+    body = mock_upstream[-1]["json"]
     assert body["projectId"] == "p-1"
     assert body["title"] == "제목"
     assert body["content"]["htmlText"] == "<p>본문</p>"
@@ -474,7 +483,7 @@ def _all_keys(obj):
 
 def test_create_task_tool_sends_no_action_user_id(client, mock_upstream):
     mcp_call(client, "create_task", {"projectId": "p-1", "title": "t"}, cookie_value=USER_A)
-    body = mock_upstream[0]["json"]
+    body = mock_upstream[-1]["json"]
     assert "actionUserId" not in set(_all_keys(body))
     assert body["projectTaskParameters"][0]["taggedProjectKey"] == {"rl": I, "domainId": D, "projectId": "p-1"}
 
@@ -488,4 +497,4 @@ def test_rest_create_task_ignores_legacy_action_user_id(client, mock_upstream):
     r = client.post("/api/v1/tasks", json={"projectId": "p-1", "title": "t", "actionUserId": "100001507091259"},
                     headers=cookie_headers(USER_A))
     assert r.status_code == 200
-    assert "actionUserId" not in set(_all_keys(mock_upstream[0]["json"]))
+    assert "actionUserId" not in set(_all_keys(mock_upstream[-1]["json"]))

@@ -8,11 +8,11 @@ class TaskCreateRequest(BaseModel):
     htmlText: str = Field(default="", description="태스크 상세 본문 (HTML 또는 일반 텍스트)", json_schema_extra={"example": "<p>상세 설명</p>"})
     parentTaskId: Optional[str] = Field(default=None, description="하위 태스크인 경우 부모 태스크 ID")
     actionUserId: Optional[str] = Field(default=None, description="(사용되지 않음) 생성자는 요청 쿠키의 세션 사용자로 결정됩니다. 하위 호환을 위해서만 허용", deprecated=True)
-    rl: Optional[str] = Field(default=None, description="Relay instance code")
-    domainId: Optional[str] = Field(default=None, description="도메인/테넌트 ID (생략 시 기본값 사용)")
+    rl: Optional[str] = Field(default=None, description="Relay instance code (생략 시 프로젝트의 rl을 자동 사용)")
+    domainId: Optional[str] = Field(default=None, description="도메인/테넌트 ID (생략 시 ID에서 자동 추출, 없으면 서버 기본값)")
 
 
 class TaskContentUpdateRequest(BaseModel):
     htmlText: str = Field(..., description="수정할 본문 내용 (HTML 또는 일반 텍스트)", json_schema_extra={"example": "<p>수정된 내용</p>"})
-    domainId: Optional[str] = Field(default=None, description="도메인/테넌트 ID (생략 시 기본값 사용)")
+    domainId: Optional[str] = Field(default=None, description="도메인/테넌트 ID (생략 시 ID에서 자동 추출, 없으면 서버 기본값)")
 

@@ -158,8 +158,8 @@ python apps/main.py            # 개발 중 자동 재시작: RELOAD=true python
 - `LOCAL_ALLOWED_HOSTS`: `local` 모드에서 추가로 허용할 Host 이름 (기본: `localhost`, `127.0.0.1`, `::1`). 그 외 Host/Origin 요청은 403
 - `NAVERWORKS_PER_USER_CONCURRENCY`: 사용자(쿠키)별 네이버웍스 동시 요청 수 (기본값: `4`)
 - `NAVERWORKS_UPSTREAM_CONCURRENCY`: 서버 전체 네이버웍스 동시 요청 수 (기본값: `25`)
-- `NAVERWORKS_DOMAIN_ID`: 기본 도메인 ID (기본값: `300098158`)
-- `NAVERWORKS_INSTANCE_CODE`: 기본 릴레이 코드 (기본값: `24101`)
+- `NAVERWORKS_DOMAIN_ID`: 대체 도메인 ID (기본값: `300098158`). ID를 받는 호출은 ID(`s-/p-/t-{domainId}-…`)에서 자동 추출하므로, ID가 없는 진입점(`list_spaces`, `create_space`, OAuth 쿠키 검증)에서만 사용
+- `NAVERWORKS_INSTANCE_CODE`: 대체 릴레이 코드 (기본값: `24101`). 프로젝트의 `rl`은 응답에서 자동으로 얻고, 확인에 실패했을 때만 사용
 - `NAVERWORKS_COOKIE_JAR_PATH`: 로컬 쿠키 파일 경로 (기본값: `~/.config/naverworks/proj_cookies.txt`)
 - `NAVERWORKS_AUTH_MODE`: 인증 모드 (기본값: `multi_user`, stdio `apps/server.py`/`apps/cli.py`는 `local`)
 
