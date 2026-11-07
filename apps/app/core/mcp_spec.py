@@ -1,3 +1,5 @@
+import re
+import html
 import time
 import json
 import hashlib
@@ -18,6 +20,12 @@ from app.core.cookie import (
 )
 from app.core.auth_context import set_current_user_cookie
 from app.core.ids import resolve_domain_id, resolve_project_rl, remember_rl, cached_rl
+
+# 응답 크기 제한 (LLM 토큰 절감)
+LIST_TASKS_DEFAULT_LIMIT = 50
+LIST_TASKS_MAX_LIMIT = 200
+PREVIEW_CHARS = 80
+ERROR_TEXT_MAX = 500
 
 # 단기 인메모리 캐시 (LLM의 다중 연속 도구 호출 시 네트워크 지연 0초 실현)
 _query_cache: Dict[str, tuple[float, Any]] = {}
@@ -196,11 +204,15 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
     },
     {
         "name": "list_tasks",
-        "description": "List all tasks belonging to a specific project (compact summary).",
+        "description": "List tasks in a project (compact: id, title, status, due, parent). Paginated: check 'total'/'hasMore' and use offset for more. Use get_task for a task's body.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "projectId": {"type": "string"},
+                "status": {"type": "string", "description": "Optional. Only tasks with this status (e.g. OPEN, DONE). Case-insensitive."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": LIST_TASKS_MAX_LIMIT, "description": f"Max tasks to return (default {LIST_TASKS_DEFAULT_LIMIT})."},
+                "offset": {"type": "integer", "minimum": 0, "description": "Number of tasks to skip (default 0)."},
+                "includePreview": {"type": "boolean", "description": "Include an 80-char body preview per task (default false, costs more tokens)."},
                 "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["projectId"]
@@ -349,6 +361,38 @@ def _slim_project(data: Any) -> Any:
     }
 
 
+_BLOCK_TAG_RE = re.compile(r"<\s*(br|/p|/div|/li|/h[1-6]|/tr)\b[^>]*>", re.I)
+_TAG_RE = re.compile(r"<[^>]+>")
+_SPACES_RE = re.compile(r"[ \t\u00a0]+")
+_NEWLINES_RE = re.compile(r"\n\s*\n+")
+
+
+def _html_to_text(value: Any) -> str:
+    """HTML 본문을 읽을 수 있는 텍스트로 변환 (태그 제거, 문단·줄바꿈 유지)"""
+    if not isinstance(value, str) or not value:
+        return ""
+    text = _BLOCK_TAG_RE.sub("\n", value)
+    text = html.unescape(_TAG_RE.sub("", text))
+    text = _SPACES_RE.sub(" ", text)
+    return _NEWLINES_RE.sub("\n", text).strip()
+
+
+def _content_text(content_obj: Any) -> str:
+    if not isinstance(content_obj, dict):
+        return ""
+    plain = content_obj.get("plainText")
+    if isinstance(plain, str) and plain.strip():
+        return plain.strip()
+    return _html_to_text(content_obj.get("htmlText"))
+
+
+def _task_status(t: Dict[str, Any]) -> Any:
+    status_val = t.get("taskStatusType") or t.get("status")
+    if isinstance(status_val, dict):
+        status_val = status_val.get("taskStatusType")
+    return status_val
+
+
 def _slim_tasks(data: Any) -> Any:
     """태스크 목록에서 50KB+에 달하는 HTML/유저메타데이터를 제거하고 핵심 정보만 추출 (토큰 70%+ 절감)"""
     if isinstance(data, dict):
@@ -362,19 +406,14 @@ def _slim_tasks(data: Any) -> Any:
     for t in tasks_list:
         if not isinstance(t, dict):
             continue
-        status_val = t.get("taskStatusType") or t.get("status")
-        if isinstance(status_val, dict):
-            status_val = status_val.get("taskStatusType")
-
-        content_obj = t.get("content") or {}
-        preview_text = content_obj.get("plainText") or content_obj.get("htmlText") or ""
-        if len(preview_text) > 80:
-            preview_text = preview_text[:80] + "..."
+        preview_text = _content_text(t.get("content"))
+        if len(preview_text) > PREVIEW_CHARS:
+            preview_text = preview_text[:PREVIEW_CHARS] + "..."
 
         slimmed.append({
             "taskId": t.get("taskId"),
             "title": t.get("title"),
-            "status": status_val,
+            "status": _task_status(t),
             "due": t.get("due"),
             "parentTaskId": t.get("parentTaskId"),
             "contentPreview": preview_text if preview_text else None,
@@ -388,19 +427,15 @@ def _slim_task(data: Any) -> Any:
     if not isinstance(data, dict):
         return data
     data = data.get("task") if isinstance(data.get("task"), dict) else data
-    status_val = data.get("taskStatusType") or data.get("status")
-    if isinstance(status_val, dict):
-        status_val = status_val.get("taskStatusType")
-
-    content_obj = data.get("content") or {}
     return {
         "taskId": data.get("taskId"),
         "title": data.get("title"),
-        "status": status_val,
+        "status": _task_status(data),
+        "projectId": data.get("mainProjectId") or data.get("projectId"),
         "due": data.get("due"),
         "parentTaskId": data.get("parentTaskId"),
         "subTaskIds": data.get("subTaskIds") or [],
-        "content": content_obj.get("plainText") or content_obj.get("htmlText") or "",
+        "content": _content_text(data.get("content")),
         "created": data.get("created"),
         "modified": data.get("modified"),
     }
@@ -451,9 +486,76 @@ def _cookie_fingerprint(cookie: str) -> str:
     return hashlib.sha256(cookie.encode("utf-8")).hexdigest()
 
 
+def _prune(value: Any) -> Any:
+    """dict 안의 빈 값(None, "", [], {})을 재귀적으로 제거 (LLM 토큰 절감). 리스트 항목 자체는 유지."""
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            v = _prune(v)
+            if v is None or v == "" or v == [] or v == {}:
+                continue
+            out[k] = v
+        return out
+    if isinstance(value, list):
+        return [_prune(v) for v in value]
+    return value
+
+
 def _format_result(data: Any, is_error: bool = False) -> Dict[str, Any]:
-    text = json.dumps(data, ensure_ascii=False, indent=2) if isinstance(data, (dict, list)) else str(data)
+    if isinstance(data, (dict, list)):
+        text = json.dumps(_prune(data), ensure_ascii=False, separators=(",", ":"))
+    else:
+        text = str(data)
     return {"content": [{"type": "text", "text": text}], "isError": is_error}
+
+
+def _short_error(err: Any) -> Any:
+    """네이버웍스 오류 본문을 짧게 정리 (HTML 오류 페이지 등이 통째로 전달되지 않도록)"""
+    if isinstance(err, (dict, list)):
+        dumped = json.dumps(err, ensure_ascii=False, separators=(",", ":"))
+        if len(dumped) <= ERROR_TEXT_MAX:
+            return err
+        err = dumped
+    text = _html_to_text(err) if isinstance(err, str) and "<" in err else str(err if err is not None else "")
+    return text if len(text) <= ERROR_TEXT_MAX else text[:ERROR_TEXT_MAX] + "...(생략)"
+
+
+def _error_result(res: Dict[str, Any]) -> Dict[str, Any]:
+    """API 실패 응답 → 상태 코드와 짧은 오류만 담은 도구 결과 (status 키는 401 재로그인 감지에 사용)"""
+    return _format_result({"status": res.get("status"), "error": _short_error(res.get("error"))}, is_error=True)
+
+
+def _write_result(res: Dict[str, Any], slim) -> Dict[str, Any]:
+    """생성 요청 결과: 성공이면 핵심 필드만, 실패면 짧은 오류"""
+    if res.get("status") == 200:
+        return _format_result(slim(res.get("data")))
+    return _error_result(res)
+
+
+def _page_tasks(tasks: List[Dict[str, Any]], args: Dict[str, Any]) -> Dict[str, Any]:
+    """list_tasks 필터·페이지 처리. 미리보기는 요청한 경우에만 포함."""
+    status = str(args.get("status") or "").strip().upper()
+    if status:
+        tasks = [t for t in tasks if str(t.get("status") or "").upper() == status]
+    try:
+        limit = int(args.get("limit") or LIST_TASKS_DEFAULT_LIMIT)
+    except (TypeError, ValueError):
+        limit = LIST_TASKS_DEFAULT_LIMIT
+    limit = max(1, min(limit, LIST_TASKS_MAX_LIMIT))
+    try:
+        offset = max(0, int(args.get("offset") or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    page = tasks[offset:offset + limit]
+    if not args.get("includePreview"):
+        page = [{k: v for k, v in t.items() if k != "contentPreview"} for t in page]
+    return {
+        "total": len(tasks),
+        "offset": offset,
+        "returned": len(page),
+        "hasMore": offset + len(page) < len(tasks),
+        "tasks": page,
+    }
 
 
 # ==============================================================================
@@ -537,7 +639,7 @@ async def async_execute_tool(
             slimmed = _slim_spaces(res.get("data"))
             set_cached_result(cache_key, slimmed)
             return _format_result(slimmed)
-        return _format_result(res, is_error=True)
+        return _error_result(res)
 
     elif tool_name == "get_space":
         space_id = args["spaceId"]
@@ -546,7 +648,7 @@ async def async_execute_tool(
         if res.get("status") == 200:
             remember_rl(res.get("data"))
             return _format_result(_slim_space(res.get("data")))
-        return _format_result(res, is_error=True)
+        return _error_result(res)
 
     elif tool_name == "create_space":
         invalidate_mcp_cache()
@@ -557,14 +659,16 @@ async def async_execute_tool(
             "spaceDescription": {"htmlText": "", "plainText": "", "mentionedUserIds": [], "inlineImages": [], "editorVersion": None}
         }
         res = await async_api_request("POST", f"/rd/{domain_id}/api/v1/spaces", payload, cookie_override=cookie_override)
-        return _format_result(res.get("data") if res.get("status") == 200 else res, is_error=res.get("status") != 200)
+        if res.get("status") == 200:
+            remember_rl(res.get("data"))
+        return _write_result(res, _slim_space)
 
     elif tool_name == "delete_space":
         invalidate_mcp_cache()
         space_id = args["spaceId"]
         domain_id = resolve_domain_id(args.get("domainId"), space_id)
         res = await async_api_request("DELETE", f"/rd/{domain_id}/api/v1/spaces/{space_id}", cookie_override=cookie_override)
-        msg = "Space deleted successfully" if res.get("status") == 200 else f"Failed to delete space: {res.get('error')}"
+        msg = "Space deleted successfully" if res.get("status") == 200 else f"Failed to delete space: {_short_error(res.get('error'))}"
         return _format_result(msg, is_error=res.get("status") != 200)
 
     # 2. 프로젝트 조회 및 관리
@@ -580,7 +684,7 @@ async def async_execute_tool(
             slimmed = _slim_projects(res.get("data"))
             set_cached_result(cache_key, slimmed)
             return _format_result(slimmed)
-        return _format_result(res, is_error=True)
+        return _error_result(res)
 
     elif tool_name == "get_project":
         cached = get_cached_result(cache_key)
@@ -595,7 +699,7 @@ async def async_execute_tool(
             slimmed = _slim_project(res.get("data"))
             set_cached_result(cache_key, slimmed)
             return _format_result(slimmed)
-        return _format_result(res, is_error=True)
+        return _error_result(res)
 
     elif tool_name == "create_project":
         invalidate_mcp_cache()
@@ -610,7 +714,7 @@ async def async_execute_tool(
         res = await async_api_request("POST", f"/rd/{domain_id}/api/v1/projects", payload, cookie_override=cookie_override)
         if res.get("status") == 200:
             remember_rl(res.get("data"))
-        return _format_result(res.get("data") if res.get("status") == 200 else res, is_error=res.get("status") != 200)
+        return _write_result(res, _slim_project)
 
     elif tool_name == "delete_project":
         invalidate_mcp_cache()
@@ -618,22 +722,26 @@ async def async_execute_tool(
         # 쓰기 요청은 프로젝트의 실제 rl 사용 (명시 값 → 캐시 → 프로젝트 조회 → 기본값)
         instance_code = await resolve_project_rl(project_id, args.get("instanceCode"), cookie_override)
         res = await async_api_request("DELETE", f"/rl/{instance_code}/api/v1/projects/{project_id}", cookie_override=cookie_override)
-        msg = "Project deleted successfully" if res.get("status") == 200 else f"Failed to delete project: {res.get('error')}"
+        msg = "Project deleted successfully" if res.get("status") == 200 else f"Failed to delete project: {_short_error(res.get('error'))}"
         return _format_result(msg, is_error=res.get("status") != 200)
 
     # 3. 태스크 조회 및 관리
     elif tool_name == "list_tasks":
-        cached = get_cached_result(cache_key)
-        if cached:
-            return _format_result(cached)
         project_id = args["projectId"]
         domain_id = resolve_domain_id(args.get("domainId"), project_id)
+        # 전체 목록을 캐시하고 필터·페이지는 매번 적용 (offset만 바꾼 연속 호출은 네트워크 호출 없음)
+        list_key = f"list_tasks:{_cookie_fingerprint(effective_cookie)}:{domain_id}:{project_id}"
+        cached = get_cached_result(list_key)
+        if cached is not None:
+            return _format_result(_page_tasks(cached, args))
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/tasks?projectId={project_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
             slimmed = _slim_tasks(res.get("data"))
-            set_cached_result(cache_key, slimmed)
-            return _format_result(slimmed)
-        return _format_result(res, is_error=True)
+            if not isinstance(slimmed, list):
+                return _format_result(slimmed)
+            set_cached_result(list_key, slimmed)
+            return _format_result(_page_tasks(slimmed, args))
+        return _error_result(res)
 
     elif tool_name == "get_task":
         task_id = args["taskId"]
@@ -641,7 +749,7 @@ async def async_execute_tool(
         res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/tasks/{task_id}", cookie_override=cookie_override)
         if res.get("status") == 200:
             return _format_result(_slim_task(res.get("data")))
-        return _format_result(res, is_error=True)
+        return _error_result(res)
 
     elif tool_name == "create_task":
         invalidate_mcp_cache()
@@ -652,7 +760,7 @@ async def async_execute_tool(
             project_id, args["title"], args.get("htmlText", ""), args.get("parentTaskId"), domain_id, rl
         )
         res = await async_api_request("POST", f"/rd/{domain_id}/api/v1/tasks", payload, cookie_override=cookie_override)
-        return _format_result(res.get("data") if res.get("status") == 200 else res, is_error=res.get("status") != 200)
+        return _write_result(res, lambda d: {k: v for k, v in _slim_task(d).items() if k != "content"} if isinstance(d, dict) else d)
 
     elif tool_name == "update_task_content":
         invalidate_mcp_cache()
@@ -666,7 +774,7 @@ async def async_execute_tool(
             }
         }
         res = await async_api_request("POST", f"/rd/{domain_id}/api/v1/tasks/{task_id}/content", payload, cookie_override=cookie_override)
-        msg = "Task content updated successfully" if res.get("status") == 200 else f"Failed to update content: {res.get('error')}"
+        msg = "Task content updated successfully" if res.get("status") == 200 else f"Failed to update content: {_short_error(res.get('error'))}"
         return _format_result(msg, is_error=res.get("status") != 200)
 
     elif tool_name == "delete_task":
@@ -674,7 +782,7 @@ async def async_execute_tool(
         task_id = args["taskId"]
         domain_id = resolve_domain_id(args.get("domainId"), task_id)
         res = await async_api_request("DELETE", f"/rd/{domain_id}/api/v1/tasks/{task_id}", cookie_override=cookie_override)
-        msg = "Task deleted successfully" if res.get("status") == 200 else f"Failed to delete task: {res.get('error')}"
+        msg = "Task deleted successfully" if res.get("status") == 200 else f"Failed to delete task: {_short_error(res.get('error'))}"
         return _format_result(msg, is_error=res.get("status") != 200)
 
     return _format_result(f"Unknown tool: {tool_name}", is_error=True)

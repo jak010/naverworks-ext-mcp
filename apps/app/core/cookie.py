@@ -1,4 +1,6 @@
 import os
+import base64
+import binascii
 import sys
 import glob
 import time
@@ -322,3 +324,30 @@ def describe_cookie_source() -> dict:
     if read_local_cookie_jar():
         return {"source": "local_cookie_jar", "path": config.COOKIE_JAR_PATH}
     return {"source": "none", "path": None}
+
+
+# ------------------------------------------------------------------------------
+# OAuth access token <-> 쿠키
+# 쿠키 원문에는 공백과 ';'이 있어 Bearer 토큰 형식(RFC 6750 b64token)에 맞지 않으므로
+# base64url(패딩 없음)로 감싸 접두어를 붙여 발급합니다.
+# ------------------------------------------------------------------------------
+
+ACCESS_TOKEN_PREFIX = "nwc_"
+
+
+def encode_access_token(cookie: str) -> str:
+    raw = base64.urlsafe_b64encode(cookie.encode("utf-8")).rstrip(b"=").decode("ascii")
+    return ACCESS_TOKEN_PREFIX + raw
+
+
+def decode_access_token(token: str) -> Optional[str]:
+    """`nwc_` 토큰이면 쿠키 문자열로 복원합니다. 형식이 아니거나 손상되었으면 None."""
+    if not token or not token.startswith(ACCESS_TOKEN_PREFIX):
+        return None
+    body = token[len(ACCESS_TOKEN_PREFIX):]
+    try:
+        cookie = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8")
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        return None
+    cookie = cookie.strip()
+    return cookie if "=" in cookie else None

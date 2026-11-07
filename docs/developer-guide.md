@@ -2,7 +2,7 @@
 
 NAVER WORKS MCP 서버를 **실행**하고, MCP 클라이언트·에이전트 프레임워크·직접 작성한 코드에서 **연동**하는 방법을 설명합니다.
 
-> 👤 **일반 사용자**가 내 PC의 AI 도구(Claude Desktop, Claude Code, Cursor, VS Code, Opencode)를 공용 서버에 연결하는 방법은 [client-setup](client-setup/README.md)을 보세요.
+> 👤 **일반 사용자**가 내 PC의 AI 도구(Claude Desktop, Claude Code, Cursor, VS Code, Opencode)를 공용 서버에 연결하는 방법은 [client-setup](client-setup.md)을 보세요.
 
 ---
 
@@ -58,7 +58,7 @@ make docker-up       # 운영: Docker Compose (multi_user) — deploy/docker-com
 
 ### 2.1 브라우저 로그인 (OAuth)
 
-`/mcp/rpc`는 MCP 표준 인가 흐름(OAuth 2.1 + PKCE)을 지원합니다. 서버가 자체 인가 서버 역할을 하며, 네이버웍스 쿠키를 access token으로 발급합니다.
+`/mcp/rpc`는 MCP 표준 인가 흐름(OAuth 2.1 + PKCE)을 지원합니다. 서버가 자체 인가 서버 역할을 하며, 네이버웍스 쿠키를 access token으로 감싸 발급합니다. 토큰 형식은 `nwc_` + base64url(쿠키)이고 패딩은 없습니다. 쿠키 원문의 공백과 `;`이 Bearer 토큰 형식(RFC 6750)에 맞지 않기 때문입니다.
 
 ```
 클라이언트 ── POST /mcp/rpc (쿠키 없음) ──▶ 401, WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource"
@@ -67,8 +67,8 @@ make docker-up       # 운영: Docker Compose (multi_user) — deploy/docker-com
           ── POST /oauth/register                          → client_id (동적 등록, 공개 클라이언트)
 브라우저   ── GET  /oauth/authorize?...&code_challenge=…    → 로그인 페이지 (네이버웍스 열기 + 쿠키 붙여넣기)
           ── POST /oauth/authorize (cookie)                → 서버가 네이버웍스 API로 쿠키 검증 → redirect_uri?code=…&state=…
-클라이언트 ── POST /oauth/token (code, code_verifier)       → {"access_token": "<쿠키>", "token_type": "Bearer"}
-          ── POST /mcp/rpc, Authorization: Bearer <쿠키>   → 정상 처리
+클라이언트 ── POST /oauth/token (code, code_verifier)       → {"access_token": "nwc_<base64url(쿠키)>", "token_type": "Bearer"}
+          ── POST /mcp/rpc, Authorization: Bearer nwc_…    → 서버가 쿠키로 복원해 처리
 ```
 
 | Method | 경로 | 설명 |
@@ -94,7 +94,7 @@ REST API(`/api/v1/spaces`, `/api/v1/projects`, `/api/v1/tasks`)도 같은 쿠키
 
 | 방법 | 형식 | 유지 범위 | 모드 |
 |---|---|---|---|
-| **OAuth 브라우저 로그인** | `Authorization: Bearer <쿠키>` (클라이언트가 자동 관리) | 클라이언트가 토큰을 저장하는 동안 (`/mcp/rpc` 전용) | 모두 |
+| **OAuth 브라우저 로그인** | `Authorization: Bearer nwc_…` (클라이언트가 자동 관리) | 클라이언트가 토큰을 저장하는 동안 (`/mcp/rpc` 전용) | 모두 |
 | **헤더 (권장)** | `X-Naverworks-Cookie: WORKS_SES=...; ...` 또는 `Authorization: Bearer <쿠키 문자열>` | SSE: 핸드셰이크 때 보낸 쿠키가 세션 종료까지 유지. 메시지마다 헤더를 보내면 그 메시지에만 우선 적용 | 모두 |
 | `set_user_cookie` 도구 | `{"cookie": "WORKS_SES=..."}` | **현재 SSE 세션에만** 유지. `/mcp/rpc`·`/mcp/call`에서는 그 요청이 끝나면 사라짐 | 모두 |
 | 쿠키 파일 경로 | `X-Naverworks-Cookie-Path` 헤더, `?cookie_path=`, `set_user_cookie`의 `cookiePath` | 경로는 **서버 PC의 파일**을 가리킴 | `local` 전용 (multi_user에서는 무시·거부) |
@@ -112,7 +112,7 @@ REST API(`/api/v1/spaces`, `/api/v1/projects`, `/api/v1/tasks`)도 같은 쿠키
 
 ### 4.1 Claude Desktop · Claude Code · Cursor · VS Code · Opencode
 
-단계별 설정은 사용자 가이드 [client-setup/02-client-config.md](client-setup/02-client-config.md)에 있습니다.
+단계별 설정은 사용자 가이드 [client-setup.md](client-setup.md)에 있습니다.
 
 | 클라이언트 | 연결 방식 요약 |
 |---|---|
@@ -120,7 +120,7 @@ REST API(`/api/v1/spaces`, `/api/v1/projects`, `/api/v1/tasks`)도 같은 쿠키
 | Claude Code | `claude mcp add --transport sse naverworks <URL> --header "X-Naverworks-Cookie: <쿠키>"` |
 | Cursor | `mcp.json`에 `"url"` + `"headers"` |
 | VS Code (Copilot) | `mcp.json`에 `"type": "sse"` + `"headers"` (`${input:...}`으로 쿠키를 입력창에서 받기 가능) |
-| Opencode | 원격 서버는 Streamable HTTP만 지원 → URL을 **`/mcp/rpc`** 로. 권장: 헤더 없이 등록 후 `opencode mcp auth naverworks`로 OAuth 브라우저 로그인. 또는 `"oauth": false` + 헤더 `{file:~/.config/naverworks/cookie.txt}` (파일이 없으면 설정 전체 로드 실패) → [04-opencode.md](client-setup/04-opencode.md) |
+| Opencode | 원격 서버는 Streamable HTTP만 지원 → URL을 **`/mcp/rpc`** 로. 권장: 헤더 없이 등록 후 `opencode mcp auth naverworks`로 OAuth 브라우저 로그인. 또는 `"oauth": false` + 헤더 `{file:~/.config/naverworks/cookie.txt}` (파일이 없으면 설정 전체 로드 실패) → [03-opencode.md](client-setup.md) |
 
 ### 4.2 그 밖의 클라이언트
 
@@ -146,7 +146,7 @@ SSE 원격 서버와 커스텀 헤더를 지원하는 클라이언트라면 아�
 
 ### 4.3 본인 PC에서 stdio로 실행
 
-서버를 따로 띄우지 않고 클라이언트가 `apps/server.py`를 직접 실행하게 할 수 있습니다 (`local` 모드, 쿠키 설정 불필요). [client-setup/03-local-mode.md](client-setup/03-local-mode.md) 참고.
+서버를 따로 띄우지 않고 클라이언트가 `apps/server.py`를 직접 실행하게 할 수 있습니다 (`local` 모드, 쿠키 설정 불필요). [client-setup.md](client-setup.md) 참고.
 
 ---
 
@@ -197,7 +197,7 @@ LLM의 함수 호출(function calling)에 연결할 때는 `GET /mcp/tools`가 �
 | `get_project` | 프로젝트 상세 | `projectId` |
 | `create_project` | 프로젝트 생성 | `spaceId`, `projectName`, `projectColor`, `projectType` |
 | `delete_project` | 프로젝트 영구 삭제 | `projectId` |
-| `list_tasks` | 프로젝트 소속 태스크 목록 (요약, 본문 미리보기 80자) | `projectId` |
+| `list_tasks` | 프로젝트 소속 태스크 목록. 요약 형태이고 `{total, offset, returned, hasMore, tasks}`로 돌려줍니다. 기본 50개, 최대 200개까지 받고, `status` 필터를 쓸 수 있습니다. 본문 미리보기는 `includePreview`일 때만 넣습니다 | `projectId` (선택: `status`, `limit`, `offset`, `includePreview`) |
 | `get_task` | 태스크 상세 (본문, 상태, 하위 태스크 ID `subTaskIds`) | `taskId` |
 | `create_task` | 태스크 또는 하위 태스크 생성 | `projectId`, `title`, `htmlText`, `parentTaskId` |
 | `update_task_content` | 태스크 본문 수정 | `taskId`, `htmlText` |

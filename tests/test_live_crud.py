@@ -128,7 +128,7 @@ def test_live_mcp_sse_crud_lifecycle(user_cookie):
                 sub_id = sub["taskId"]
                 created["tasks"].append(sub_id)
 
-                listed = {t["taskId"]: t for t in s.tool("list_tasks", {"projectId": project_id})}
+                listed = {t["taskId"]: t for t in s.tool("list_tasks", {"projectId": project_id})["tasks"]}
                 assert task_id in listed and sub_id in listed
                 assert listed[sub_id]["parentTaskId"] == task_id
 
@@ -144,7 +144,7 @@ def test_live_mcp_sse_crud_lifecycle(user_cookie):
                 created["tasks"].remove(sub_id)
                 s.tool("delete_task", {"taskId": task_id})
                 created["tasks"].remove(task_id)
-                remaining = [t["taskId"] for t in s.tool("list_tasks", {"projectId": project_id})]
+                remaining = [t["taskId"] for t in s.tool("list_tasks", {"projectId": project_id})["tasks"]]
                 assert task_id not in remaining and sub_id not in remaining
 
                 s.tool("delete_project", {"projectId": project_id})

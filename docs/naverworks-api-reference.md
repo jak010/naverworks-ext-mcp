@@ -18,7 +18,7 @@ NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Pro
 
 이 서버를 통해 호출할 때 쿠키를 얻는 방법은 서버의 인증 모드에 따라 다릅니다.
 
-- **multi_user 모드 (공용 서버, 기본값)**: 각 사용자가 자신의 쿠키를 요청 헤더(`X-Naverworks-Cookie`)로 전달합니다. 서버는 쿠키를 추출하지 않습니다. → [client-setup/01-get-cookie.md](client-setup/01-get-cookie.md)
+- **multi_user 모드 (공용 서버, 기본값)**: 각 사용자가 자신의 쿠키를 요청 헤더(`X-Naverworks-Cookie`)로 전달합니다. 서버는 쿠키를 추출하지 않습니다. → [client-setup.md](client-setup.md#2-브라우저에서-로그인)
 - **local 모드 (본인 PC)**: Chrome 로그인 세션에서 쿠키를 추출해 `~/.config/naverworks/proj_cookies.txt`에 저장합니다.
   ```bash
   .venv/bin/python apps/cli.py refresh-cookie   # Chrome 세션에서 재추출

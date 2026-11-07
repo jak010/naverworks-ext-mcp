@@ -17,6 +17,14 @@ from app import config
 
 logger = logging.getLogger("mcp")
 
+# 지원하는 MCP 프로토콜 버전 (최신순). 클라이언트 요청 버전이 목록에 없으면 최신 버전으로 응답
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+
+
+def negotiate_protocol_version(requested: Any) -> str:
+    return requested if requested in SUPPORTED_PROTOCOL_VERSIONS else SUPPORTED_PROTOCOL_VERSIONS[0]
+
+
 SSE_ENQUEUE_TIMEOUT = 5.0  # SSE 큐가 가득 찼을 때 응답 적재를 기다리는 최대 시간(초)
 router = APIRouter(tags=["MCP"])
 
@@ -114,12 +122,11 @@ async def mcp_json_rpc(req: MCPJsonRpcRequest, request: Request):
         return unauthorized_response(request, req_id)
 
     if method == "initialize":
-        client_version = params.get("protocolVersion", "2024-11-05")
         return {
             "jsonrpc": "2.0",
             "id": req_id,
             "result": {
-                "protocolVersion": client_version,
+                "protocolVersion": negotiate_protocol_version(params.get("protocolVersion")),
                 "serverInfo": {
                     "name": "naverworks-custom-fastapi",
                     "version": "1.0.0"
@@ -131,7 +138,7 @@ async def mcp_json_rpc(req: MCPJsonRpcRequest, request: Request):
                 }
             }
         }
-    elif method == "notifications/initialized":
+    elif method.startswith("notifications/"):
         return Response(status_code=202)
     elif method == "tools/list":
         return {
@@ -231,7 +238,7 @@ async def mcp_sse_messages(
         raise HTTPException(status_code=400, detail=f"유효한 JSON 요청이 아닙니다: {e}")
 
     req_id = req_data.get("id")
-    method = req_data.get("method")
+    method = req_data.get("method") or ""
     params = req_data.get("params", {})
 
     # 쿠키 결정 우선순위: 1) 이번 메시지 요청 헤더 ➔ 2) SSE 핸드셰이크 시 등록된 세션 쿠키 ➔ 3) 서버 기본 쿠키
@@ -240,12 +247,11 @@ async def mcp_sse_messages(
 
     response_payload = None
     if method == "initialize":
-        client_version = params.get("protocolVersion", "2024-11-05")
         response_payload = {
             "jsonrpc": "2.0",
             "id": req_id,
             "result": {
-                "protocolVersion": client_version,
+                "protocolVersion": negotiate_protocol_version(params.get("protocolVersion")),
                 "serverInfo": {
                     "name": "naverworks-custom-fastapi",
                     "version": "1.0.0"
@@ -257,7 +263,7 @@ async def mcp_sse_messages(
                 }
             }
         }
-    elif method == "notifications/initialized":
+    elif method.startswith("notifications/"):
         return Response(status_code=202)
     elif method == "tools/list":
         response_payload = {

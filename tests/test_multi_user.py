@@ -101,6 +101,8 @@ def result_payload(result):
 
 def owner_of(payload):
     """mock_upstream 응답에 담긴 owner(요청 쿠키) 추출"""
+    if isinstance(payload, dict) and isinstance(payload.get("tasks"), list):  # list_tasks 페이지 응답
+        payload = payload["tasks"]
     if isinstance(payload, list):
         payload = payload[0]
     if isinstance(payload.get("task"), dict):  # REST 원본 응답 {"task": {...}}
@@ -181,7 +183,7 @@ def test_get_auth_status_without_cookie_is_unauthenticated(client, server_has_cr
     status = result_payload(mcp_call(client, "get_auth_status"))
     assert status["isAuthenticated"] is False
     assert status["cookieSource"] == "none"
-    assert status["cookiePath"] is None
+    assert status.get("cookiePath") is None  # 빈 값은 응답에서 생략
 
 
 def test_unknown_auth_mode_fails_safe_to_multi_user(monkeypatch, server_has_credentials):
