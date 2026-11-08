@@ -7,7 +7,8 @@ WWW-Authenticate 헤더를 받고, 아래 메타데이터를 따라 사용자의
 네이버웍스 세션 쿠키는 worksmobile.com 도메인의 HttpOnly 쿠키라 이 서버가 브라우저에서 직접 읽을 수 없습니다.
 그래서 로그인 페이지에서 사용자가 네이버웍스에 로그인한 뒤 복사한 쿠키 문자열을 붙여넣으면,
 서버가 네이버웍스 API로 쿠키를 검증하고 그 쿠키를 access token으로 발급합니다.
-(이후 클라이언트는 `Authorization: Bearer <쿠키>` 로 요청하며, 기존 Bearer 쿠키 처리 경로를 그대로 탑니다.)
+access token은 `nwc_` + base64url(쿠키) 형식입니다. 쿠키 원문의 공백과 ';'이 Bearer 토큰 형식(RFC 6750)에 맞지 않기 때문입니다.
+(클라이언트는 `Authorization: Bearer nwc_...` 로 요청하고, 서버가 쿠키로 복원해 처리합니다.)
 
 - 서버는 쿠키를 저장하지 않습니다. 인가 코드(최대 5분, 1회용)만 메모리에 잠시 보관합니다.
 - PKCE(S256) 필수.
@@ -17,6 +18,7 @@ import base64
 import json
 import hashlib
 import html
+import re
 import secrets
 import time
 from typing import Any, Dict, Optional
@@ -28,6 +30,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import config
 from app.config import BASE_URL, DEFAULT_DOMAIN_ID
 from app.core.client import async_api_request
+from app.core.cookie import encode_access_token
 
 router = APIRouter(tags=["OAuth"])
 
@@ -129,14 +132,22 @@ async def register_client(request: Request):
 # 인가 (브라우저 로그인 페이지)
 # ------------------------------------------------------------------------------
 
+_PRIVATE_SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*$")
+_BLOCKED_SCHEMES = {"javascript", "data", "file", "vbscript", "about", "blob", "ftp", "ws", "wss"}
+
+
 def _valid_redirect_uri(uri: Any) -> bool:
     if not isinstance(uri, str):
         return False
     parts = urlsplit(uri)
-    if parts.scheme == "https" and parts.netloc:
+    scheme = parts.scheme.lower()
+    if scheme == "https" and parts.netloc:
         return True
     # 데스크톱 MCP 클라이언트의 로컬 콜백 서버만 http 허용
-    return parts.scheme == "http" and parts.hostname in {"localhost", "127.0.0.1", "::1"}
+    if scheme == "http":
+        return parts.hostname in {"localhost", "127.0.0.1", "::1"}
+    # 네이티브 앱 전용 스킴 (RFC 8252 7.1, 예: cursor://, vscode://). 인가 코드는 PKCE로 보호됨
+    return bool(_PRIVATE_SCHEME_RE.match(scheme)) and scheme not in _BLOCKED_SCHEMES
 
 
 def _normalize_cookie(raw: str) -> str:
@@ -300,6 +311,6 @@ async def token(request: Request):
         return _token_error("invalid_grant", "PKCE code_verifier 검증에 실패했습니다.")
 
     return JSONResponse(
-        content={"access_token": entry["cookie"], "token_type": "Bearer", "expires_in": ACCESS_TOKEN_TTL, "scope": "naverworks"},
+        content={"access_token": encode_access_token(entry["cookie"]), "token_type": "Bearer", "expires_in": ACCESS_TOKEN_TTL, "scope": "naverworks"},
         headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
     )

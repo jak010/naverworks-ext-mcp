@@ -6,6 +6,7 @@
 
 import base64
 import hashlib
+import re
 import secrets
 from urllib.parse import parse_qs, urlsplit
 
@@ -88,6 +89,9 @@ def test_full_browser_login_flow(client, mock_upstream):
     })
     assert tok.status_code == 200
     access = tok.json()["access_token"]
+    # Bearer 토큰 형식(RFC 6750 b64token): 공백·';' 없이 nwc_ + base64url
+    assert re.fullmatch(r"nwc_[A-Za-z0-9_-]+", access)
+    assert USER not in access
 
     # 인가 코드는 1회용
     again = client.post("/oauth/token", data={"grant_type": "authorization_code", "code": q["code"][0], "code_verifier": verifier})
@@ -133,3 +137,41 @@ def test_expired_session_returns_401_for_reauth(client, monkeypatch):
     monkeypatch.setattr(nw_client, "get_async_client", fake)
     r = rpc(client, "tools/call", headers={"Authorization": f"Bearer {USER}"}, name="get_project", arguments={"projectId": "p-1"})
     assert r.status_code == 401 and "www-authenticate" in r.headers
+
+
+@pytest.mark.parametrize("uri", ["cursor://anysphere.cursor-retrieval/oauth/user-naverworks/callback", "vscode://vscode.github-authentication/did-authenticate"])
+def test_native_app_redirect_scheme_allowed(client, uri):
+    assert client.post("/oauth/register", json={"redirect_uris": [uri]}).status_code == 201
+
+
+@pytest.mark.parametrize("uri", ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "http://192.168.0.5/cb"])
+def test_dangerous_redirect_scheme_refused(client, uri):
+    assert client.post("/oauth/register", json={"redirect_uris": [uri]}).status_code == 400
+
+
+def test_any_notification_returns_202(client):
+    h = {"X-Naverworks-Cookie": USER}
+    for m in ("notifications/initialized", "notifications/cancelled"):
+        r = client.post("/mcp/rpc", json={"jsonrpc": "2.0", "method": m, "params": {}}, headers=h)
+        assert r.status_code == 202 and r.content == b""
+
+
+@pytest.mark.parametrize("requested,expected", [("2025-06-18", "2025-06-18"), ("2024-11-05", "2024-11-05"), ("2099-01-01", "2025-06-18"), (None, "2025-06-18")])
+def test_protocol_version_negotiation(client, requested, expected):
+    params = {"protocolVersion": requested} if requested else {}
+    r = rpc(client, "initialize", headers={"X-Naverworks-Cookie": USER}, **params)
+    assert r.json()["result"]["protocolVersion"] == expected
+
+
+def test_access_token_roundtrip_and_tampered_token():
+    from app.core.cookie import decode_access_token, encode_access_token
+    cookie = "NNB=a b; WORKS_SES=한글-값==; WORKS_USER_ID=x"
+    assert decode_access_token(encode_access_token(cookie)) == cookie
+    assert decode_access_token("nwc_***") is None
+    assert decode_access_token("nwc_") is None
+    assert decode_access_token("plain-token") is None
+
+
+def test_raw_cookie_bearer_still_accepted(client, mock_upstream):
+    r = rpc(client, "tools/call", headers={"Authorization": f"Bearer {USER}"}, name="list_spaces", arguments={})
+    assert r.status_code == 200 and "owner:" + USER in r.json()["result"]["content"][0]["text"]

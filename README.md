@@ -2,9 +2,11 @@
 
 네이버웍스 Project/Spaces/Tasks 웹 API 기능을 손쉽게 제어할 수 있는 **FastAPI 기반 REST API 및 MCP 서버**입니다. 대화형 Swagger 문서(`/docs`), 웹 대시보드(`/dashboard`, local 모드), MCP(2024-11-05 HTTP+SSE 전송 / stdio)를 지원합니다.
 
-> 👤 **사용자 PC에 MCP를 연결하는 방법(쿠키 복사 → AI 도구 등록)은 [docs/client-setup](docs/client-setup/README.md)을 참고하세요.**
+> 🚀 **처음이라면 [INSTALL.md](INSTALL.md)부터 보세요.** 공용 서버 연결, 서버 띄우기, 로컬 모드 설치를 한 장에 요약했습니다.
 >
-> 📖 **Claude Desktop, Cursor, Antigravity 등 LLM 연동 방법은 [docs/llm-integration-guide.md](docs/llm-integration-guide.md)를 참고하세요.**
+> 👤 **사용자 PC에 MCP를 연결하는 방법(AI 도구에 주소 등록 → 브라우저 로그인)은 [docs/client-setup](docs/client-setup.md)을 참고하세요.**
+>
+> 📖 **Claude Desktop, Cursor, Antigravity 등 LLM 연동 방법은 [docs/developer-guide.md](docs/developer-guide.md)를 참고하세요.**
 
 ---
 
@@ -203,6 +205,5 @@ docker compose -f deploy/docker-compose.yml logs -f
 
 각 사용자는 자신의 네이버웍스 쿠키를 `X-Naverworks-Cookie` 헤더로 전달해 연결합니다. 사용자 PC에는 Python이나 이 저장소가 필요 없습니다.
 
-- **사용자 설정 가이드 (최종 체크리스트 포함)**: [docs/client-setup](docs/client-setup/README.md) — 쿠키 복사, Claude Desktop·Claude Code·Cursor·VS Code·Opencode 설정, 보안 수칙
-- **`url` + `headers` 형식 예시** (Cursor 등): [docs/client-setup/mcp_config_example.json](docs/client-setup/mcp_config_example.json) — Claude Desktop은 이 형식을 지원하지 않으므로 `mcp-remote`를 사용합니다 ([설정 방법](docs/client-setup/02-client-config.md#claude-desktop))
-- **그 밖의 클라이언트, 쿠키 전달 방식 상세, 코드에서 직접 호출**: [docs/llm-integration-guide.md](docs/llm-integration-guide.md)
+- **사용자 설정 가이드**: [docs/client-setup.md](docs/client-setup.md) — 주소 등록과 브라우저 로그인(Claude Code·Cursor·VS Code·Opencode·Claude Desktop), 사용 예시, 문제 해결
+- **그 밖의 클라이언트, 쿠키 전달 방식 상세, 코드에서 직접 호출**: [docs/developer-guide.md](docs/developer-guide.md)

@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional
 from fastapi import HTTPException, Request
-from app.core.cookie import read_user_cookie_path
+from app.core.cookie import decode_access_token, read_user_cookie_path
 from app.core.auth_context import set_current_user_cookie
 
 
@@ -48,6 +48,11 @@ def extract_cookie_override(request: Request) -> Optional[str]:
         auth_val = auth_header.strip()
         if auth_val.lower().startswith("bearer "):
             token = auth_val[7:].strip()
+            # OAuth로 발급한 토큰(nwc_ + base64url 쿠키)
+            decoded = decode_access_token(token)
+            if decoded:
+                return decoded
+            # 쿠키 원문을 그대로 Bearer로 보낸 경우 (이전 방식 호환)
             if "WORKS" in token or "NEO" in token or "=" in token:
                 return token
 
