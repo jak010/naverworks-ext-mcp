@@ -58,7 +58,7 @@ make docker-up       # 운영: Docker Compose (multi_user) — deploy/docker-com
 
 ### 2.1 브라우저 로그인 (OAuth)
 
-`/mcp/rpc`는 MCP 표준 인가 흐름(OAuth 2.1 + PKCE)을 지원합니다. 서버가 자체 인가 서버 역할을 하며, 네이버웍스 쿠키를 access token으로 감싸 발급합니다. 토큰 형식은 `nwc_` + base64url(쿠키)이고 패딩은 없습니다. 쿠키 원문의 공백과 `;`이 Bearer 토큰 형식(RFC 6750)에 맞지 않기 때문입니다.
+`/mcp/rpc`는 MCP 표준 인가 흐름(OAuth 2.1 + PKCE)을 지원합니다. 서버가 자체 인가 서버 역할을 하며, 네이버웍스 쿠키를 access token으로 감싸 발급합니다. 토큰 형식은 `nwt_` + base64url(JSON `{c: 쿠키, d: 조직 ID}`)이고 패딩은 없습니다. 조직 ID가 없으면 `nwc_` + base64url(쿠키) 형식입니다. 쿠키 원문의 공백과 `;`이 Bearer 토큰 형식(RFC 6750)에 맞지 않기 때문입니다.
 
 ```
 클라이언트 ── POST /mcp/rpc (쿠키 없음) ──▶ 401, WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource"
@@ -66,8 +66,8 @@ make docker-up       # 운영: Docker Compose (multi_user) — deploy/docker-com
           ── GET  /.well-known/oauth-authorization-server → 각 엔드포인트
           ── POST /oauth/register                          → client_id (동적 등록, 공개 클라이언트)
 브라우저   ── GET  /oauth/authorize?...&code_challenge=…    → 로그인 페이지 (네이버웍스 열기 + 쿠키 붙여넣기)
-          ── POST /oauth/authorize (cookie)                → 서버가 네이버웍스 API로 쿠키 검증 → redirect_uri?code=…&state=…
-클라이언트 ── POST /oauth/token (code, code_verifier)       → {"access_token": "nwc_<base64url(쿠키)>", "token_type": "Bearer"}
+          ── POST /oauth/authorize (Copy as cURL)          → 쿠키·조직 ID 추출 → 네이버웍스 API로 검증 → redirect_uri?code=…&state=…
+클라이언트 ── POST /oauth/token (code, code_verifier)       → {"access_token": "nwt_<base64url({c: 쿠키, d: 조직 ID})>", "token_type": "Bearer"}
           ── POST /mcp/rpc, Authorization: Bearer nwc_…    → 서버가 쿠키로 복원해 처리
 ```
 
@@ -205,9 +205,9 @@ LLM의 함수 호출(function calling)에 연결할 때는 `GET /mcp/tools`가 �
 
 `domainId`·`instanceCode`(`rl`)는 보통 생략합니다. 직접 넣은 값이 항상 우선합니다.
 
-- **`domainId`**: 인자로 받은 ID(`spaceId`, `projectId`, `taskId`, `parentTaskId`)의 `s-/p-/t-{domainId}-{uuid}` 형식에서 추출합니다. ID가 없는 `list_spaces`·`create_space`만 서버 설정값 `NAVERWORKS_DOMAIN_ID`를 씁니다.
+- **`domainId`**: 인자로 받은 ID(`spaceId`, `projectId`, `taskId`, `parentTaskId`)의 `s-/p-/t-{domainId}-{uuid}` 형식에서 추출합니다. ID가 없는 `list_spaces`·`create_space`는 먼저 클라이언트 설정 과정에서 받은 조직 ID를 씁니다. OAuth 로그인에서는 붙여넣은 cURL의 `/rd/{domainId}/`를 읽어 토큰(`nwt_…`)에 담고, 헤더 방식에서는 `X-Naverworks-Domain-Id` 헤더로 받습니다. 둘 다 요청마다 전달되므로 서버를 재시작해도 유지됩니다. 그다음으로 같은 사용자(쿠키)의 이전 호출에서 기억한 값을 씁니다. 그 값이 없으면 로그인한 네이버웍스 웹 페이지(`/space`)에서 찾고, 찾으면 사용자별로 기억합니다. OAuth 로그인 때도 이렇게 찾아 두어서, 로그인 직후에는 추가 조회가 없습니다. 이 방법으로도 알 수 없을 때만 `NAVERWORKS_DOMAIN_ID`(선택, 기본값 없음)를 씁니다. 그것도 없으면 `DOMAIN_ID_UNKNOWN` 오류로 ID를 요청합니다. 다른 조직으로 잘못 요청하지는 않습니다.
 - **`rl`**: 스페이스·프로젝트 응답의 `rl`을 프로젝트별로 기억합니다. 모르는 프로젝트에 쓰기 요청(`create_task`, `delete_project`)을 보낼 때는 프로젝트 조회를 1회 먼저 실행해 확인합니다. 조회는 `rl`이 달라도 동작하므로 `get_project`는 추가 호출이 없습니다. 확인에 실패하면 `NAVERWORKS_INSTANCE_CODE`를 씁니다.
-- 따라서 ID를 받는 도구는 다른 조직의 ID여도 맞는 값으로 동작합니다. 진입점(`list_spaces`)의 조직 자동 결정은 아직 지원하지 않습니다.
+- 따라서 서버에 조직 값을 설정하지 않아도 여러 조직의 사용자가 같은 서버를 쓸 수 있습니다.
 
 ---
 

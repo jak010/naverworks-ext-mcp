@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from app import config
 from app.config import is_local_mode
 from app.core.client import close_async_client
+from app.core.ids import DomainIdUnknown
 from app.api.system import router as system_router
 from app.api.v1 import v1_router
 from app.api.mcp import router as mcp_router
@@ -122,11 +123,17 @@ if config.CORS_ALLOW_ORIGINS:
         allow_origins=config.CORS_ALLOW_ORIGINS,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "DELETE"],
-        allow_headers=["Content-Type", "Authorization", "X-Naverworks-Cookie", "X-Request-ID"],
+        allow_headers=["Content-Type", "Authorization", "X-Naverworks-Cookie", "X-Naverworks-Domain-Id", "X-Request-ID"],
     )
 
 # 3. local 모드 Host/Origin 검증 (가장 바깥에서 실행되도록 마지막에 등록)
 app.add_middleware(LocalOriginGuard)
+
+
+# 조직 ID를 알 수 없는 REST 요청 → 400 (domainId 또는 ID를 지정하도록 안내)
+@app.exception_handler(DomainIdUnknown)
+async def domain_unknown_handler(request: Request, exc: DomainIdUnknown):
+    return JSONResponse(status_code=400, content={"status": 400, "error": "DOMAIN_ID_UNKNOWN", "message": str(exc)})
 
 
 # 4. 전역 예외 처리기 (예상치 못한 에러 시에도 일관된 JSON 에러 응답 및 서버 크래시 방지)

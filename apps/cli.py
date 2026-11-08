@@ -5,7 +5,9 @@ NAVER WORKS CLI Tool
 """
 
 import os
+import sys
 import json
+import asyncio
 import argparse
 
 # CLI는 본인 PC에서 실행하는 단일 사용자 도구이므로 로컬 모드가 기본입니다. (app import 전에 설정)
@@ -18,10 +20,10 @@ from app.core import (
     login_via_browser,
 )
 from app.config import (
-    DEFAULT_DOMAIN_ID,
     DEFAULT_INSTANCE_CODE,
     COOKIE_JAR_PATH,
 )
+from app.core.ids import DomainIdUnknown, ensure_domain_id
 
 
 def format_json(data):
@@ -135,19 +137,19 @@ def main():
 
     # spaces
     p_spaces = subparsers.add_parser("spaces", help="스페이스 목록 조회")
-    p_spaces.add_argument("--domain-id", default=DEFAULT_DOMAIN_ID, help="도메인 ID")
+    p_spaces.add_argument("--domain-id", default=None, help="도메인 ID (생략 시 ID 또는 로그인한 계정에서 자동 확인)")
     p_spaces.set_defaults(func=cmd_list_spaces)
 
     # space detail
     p_space = subparsers.add_parser("space", help="스페이스 상세 조회")
     p_space.add_argument("space_id", help="Space ID")
-    p_space.add_argument("--domain-id", default=DEFAULT_DOMAIN_ID, help="도메인 ID")
+    p_space.add_argument("--domain-id", default=None, help="도메인 ID (생략 시 ID 또는 로그인한 계정에서 자동 확인)")
     p_space.set_defaults(func=cmd_get_space)
 
     # projects list by space
     p_projects = subparsers.add_parser("projects", help="스페이스 하위 프로젝트 목록 조회")
     p_projects.add_argument("space_id", help="Space ID")
-    p_projects.add_argument("--domain-id", default=DEFAULT_DOMAIN_ID, help="도메인 ID")
+    p_projects.add_argument("--domain-id", default=None, help="도메인 ID (생략 시 ID 또는 로그인한 계정에서 자동 확인)")
     p_projects.set_defaults(func=cmd_list_projects)
 
     # project detail
@@ -159,16 +161,24 @@ def main():
     # tasks
     p_tasks = subparsers.add_parser("tasks", help="태스크 목록 조회")
     p_tasks.add_argument("project_id", help="Project ID")
-    p_tasks.add_argument("--domain-id", default=DEFAULT_DOMAIN_ID, help="도메인 ID")
+    p_tasks.add_argument("--domain-id", default=None, help="도메인 ID (생략 시 ID 또는 로그인한 계정에서 자동 확인)")
     p_tasks.set_defaults(func=cmd_list_tasks)
 
     # task detail
     p_task = subparsers.add_parser("task", help="태스크 상세 조회")
     p_task.add_argument("task_id", help="Task ID")
-    p_task.add_argument("--domain-id", default=DEFAULT_DOMAIN_ID, help="도메인 ID")
+    p_task.add_argument("--domain-id", default=None, help="도메인 ID (생략 시 ID 또는 로그인한 계정에서 자동 확인)")
     p_task.set_defaults(func=cmd_get_task)
 
     args = parser.parse_args()
+    if hasattr(args, "domain_id") and not args.domain_id:
+        ensure_cookie_jar()
+        ids = [getattr(args, k, None) for k in ("space_id", "project_id", "task_id")]
+        try:
+            args.domain_id = asyncio.run(ensure_domain_id(None, *ids))
+        except DomainIdUnknown as e:
+            print(f"❌ {e} (예: --domain-id 123456)")
+            sys.exit(1)
     if hasattr(args, "func"):
         args.func(args)
     else:

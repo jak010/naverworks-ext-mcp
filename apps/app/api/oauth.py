@@ -7,8 +7,9 @@ WWW-Authenticate 헤더를 받고, 아래 메타데이터를 따라 사용자의
 네이버웍스 세션 쿠키는 worksmobile.com 도메인의 HttpOnly 쿠키라 이 서버가 브라우저에서 직접 읽을 수 없습니다.
 그래서 로그인 페이지에서 사용자가 네이버웍스에 로그인한 뒤 복사한 쿠키 문자열을 붙여넣으면,
 서버가 네이버웍스 API로 쿠키를 검증하고 그 쿠키를 access token으로 발급합니다.
-access token은 `nwc_` + base64url(쿠키) 형식입니다. 쿠키 원문의 공백과 ';'이 Bearer 토큰 형식(RFC 6750)에 맞지 않기 때문입니다.
-(클라이언트는 `Authorization: Bearer nwc_...` 로 요청하고, 서버가 쿠키로 복원해 처리합니다.)
+사용자는 네이버웍스 요청을 "Copy as cURL"로 복사해 붙여넣고, 서버는 여기서 쿠키와 조직 ID(요청 URL의 /rd/{domainId}/)를 함께 얻습니다.
+access token은 `nwt_` + base64url({"c": 쿠키, "d": 조직 ID}) 형식이라 요청마다 조직 ID가 함께 전달됩니다 (서버 재시작에도 유지).
+쿠키 원문의 공백과 ';'이 Bearer 토큰 형식(RFC 6750)에 맞지 않아 base64url로 감쌉니다.
 
 - 서버는 쿠키를 저장하지 않습니다. 인가 코드(최대 5분, 1회용)만 메모리에 잠시 보관합니다.
 - PKCE(S256) 필수.
@@ -28,9 +29,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app import config
-from app.config import BASE_URL, DEFAULT_DOMAIN_ID
+from app.config import BASE_URL
 from app.core.client import async_api_request
 from app.core.cookie import encode_access_token
+from app.core.ids import discover_domain_id, remember_user_domain, resolve_domain_id
 
 router = APIRouter(tags=["OAuth"])
 
@@ -159,6 +161,40 @@ def _normalize_cookie(raw: str) -> str:
     return " ".join(c.split())  # 여러 줄로 붙여넣은 경우 한 줄로
 
 
+_RD_DOMAIN_RE = re.compile(r"/rd/(\d{3,})/")
+# "Copy as cURL"의 쿠키: bash/zsh (-b '...', -H 'cookie: ...') · Windows cmd (^"...^")
+_CURL_COOKIE_RES = (
+    re.compile(r"""(?:-H|--header)\s+(['"])cookie:\s*(.*?)\1""", re.I | re.S),
+    re.compile(r"""(?:-b|--cookie)\s+(['"])(.*?)\1""", re.S),
+)
+
+
+def parse_login_input(pasted: str, request_url: str = "") -> "tuple[str, Optional[str]]":
+    """로그인 페이지 입력에서 (쿠키, 조직 ID)를 꺼냅니다.
+    - "Copy as cURL" 전체를 붙여넣으면 요청 URL(/rd/{조직 ID}/...)과 쿠키를 모두 얻습니다.
+    - 쿠키 값만 붙여넣은 경우 조직 ID는 '요청 URL' 칸(또는 숫자만)에서 얻습니다."""
+    text = pasted or ""
+    url_text = (request_url or "").strip()
+    domain = None
+    if url_text.isdigit() and len(url_text) >= 3:
+        domain = url_text
+    else:
+        m = _RD_DOMAIN_RE.search(url_text) or _RD_DOMAIN_RE.search(text)
+        domain = m.group(1) if m else None
+
+    cookie = ""
+    if re.search(r"(^|\s)curl(\.exe)?\s", text.strip() + " ", re.I) or text.lstrip().lower().startswith("curl"):
+        unescaped = text.replace("^\"", "\"").replace("^%", "%").replace("^&", "&").replace("^", "") if '^"' in text else text
+        for pat in _CURL_COOKIE_RES:
+            m = pat.search(unescaped)
+            if m:
+                cookie = m.group(2)
+                break
+    else:
+        cookie = text
+    return _normalize_cookie(cookie), domain
+
+
 def _authorize_params(source: Dict[str, Any]) -> Dict[str, str]:
     keys = ["response_type", "client_id", "redirect_uri", "code_challenge", "code_challenge_method", "state", "scope", "resource"]
     return {k: str(source.get(k) or "") for k in keys}
@@ -196,6 +232,7 @@ ol {{ padding-left:20px; color:var(--muted); }}
 li {{ margin:4px 0; }}
 code {{ font-size:13px; }}
 a.btn, button {{ display:inline-block; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 16px; font-size:15px; text-decoration:none; cursor:pointer; }}
+input {{ width:100%; box-sizing:border-box; margin:8px 0 12px; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); font:13px ui-monospace,Menlo,monospace; }}
 textarea {{ width:100%; box-sizing:border-box; min-height:120px; margin:8px 0 12px; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); font:13px ui-monospace,Menlo,monospace; }}
 .err {{ color:var(--err); font-weight:600; }}
 .muted {{ color:var(--muted); font-size:13px; }}
@@ -207,17 +244,21 @@ textarea {{ width:100%; box-sizing:border-box; min-height:120px; margin:8px 0 12
 <ol>
   <li>열린 네이버웍스 탭에서 로그인합니다.</li>
   <li>개발자 도구를 엽니다. (Windows/Linux: <code>F12</code>, macOS: <code>⌥⌘I</code>)</li>
-  <li><b>Network</b> 탭 → 페이지 새로고침 → 필터에 <code>api/v1</code> 입력 → 아무 요청이나 클릭</li>
-  <li><b>Request Headers</b>의 <code>cookie:</code> 값 전체를 복사합니다. (<code>WORKS_SES=</code>가 포함되어야 합니다)</li>
+  <li><b>Network</b> 탭 → 페이지 새로고침 → 필터에 <code>/rd/</code> 입력 (주소에 <code>/rd/숫자/</code>가 있는 요청)</li>
+  <li>목록의 아무 요청이나 <b>마우스 오른쪽 클릭 → Copy → Copy as cURL</b> (Windows는 <i>Copy as cURL (bash)</i> 권장)</li>
 </ol>
+<p class="muted">cURL에는 로그인 쿠키와 조직 ID(요청 주소의 <code>/rd/숫자/</code>)가 함께 들어 있어 한 번에 설정됩니다.
+cURL 대신 <b>Request Headers</b>의 <code>cookie:</code> 값만 복사했다면, 아래 <b>요청 URL</b> 칸에 그 요청의 Request URL도 붙여넣으세요.</p>
 {err}
 <form method="post" action="/oauth/authorize">
 {hidden}
-<label for="cookie"><b>2. 복사한 쿠키 붙여넣기</b></label>
-<textarea id="cookie" name="cookie" required placeholder="WORKS_SES=...; WORKS_USER_ID=...; ..."></textarea>
+<label for="cookie"><b>2. 복사한 cURL(또는 쿠키) 붙여넣기</b></label>
+<textarea id="cookie" name="cookie" required placeholder="curl 'https://project.worksmobile.com/rd/.../api/v1/...' -H '...' -b 'WORKS_SES=...'"></textarea>
+<label for="request_url"><b>요청 URL</b> <span class="muted">(쿠키 값만 붙여넣은 경우)</span></label>
+<input id="request_url" name="request_url" placeholder="https://project.worksmobile.com/rd/123456789/api/v1/spaces">
 <button type="submit">로그인 완료</button>
 </form>
-<p class="muted">쿠키는 이 서버에 저장되지 않고, 검증 후 사용 중인 AI 도구에만 전달됩니다.</p>
+<p class="muted">쿠키와 조직 ID는 이 서버에 저장되지 않고, 검증 후 사용 중인 AI 도구에만 전달됩니다.</p>
 </div></main></body></html>"""
     return HTMLResponse(page, status_code=status_code, headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY"})
 
@@ -239,22 +280,40 @@ async def authorize_submit(request: Request):
     if problem:
         return HTMLResponse(f"<p>잘못된 인증 요청: {html.escape(problem)}</p>", status_code=400)
 
-    cookie = _normalize_cookie(form.get("cookie", ""))
+    cookie, domain_id = parse_login_input(form.get("cookie", ""), form.get("request_url", ""))
     if len(cookie) < 20 or "=" not in cookie:
-        return _render_login_page(p, "쿠키 문자열이 비어 있거나 형식이 올바르지 않습니다.", status_code=400)
+        return _render_login_page(
+            p, "쿠키를 찾지 못했습니다. 요청을 'Copy as cURL'로 복사했는지, 또는 cookie: 값 전체를 붙여넣었는지 확인해 주세요.",
+            status_code=400,
+        )
 
-    # 네이버웍스 API로 쿠키 유효성 확인
-    res = await async_api_request("GET", f"/rd/{DEFAULT_DOMAIN_ID}/api/v1/spaces", cookie_override=cookie)
+    # 조직 ID: 붙여넣은 cURL/요청 URL → (없으면) 로그인한 웹 페이지 → 서버 설정
+    if not domain_id:
+        valid, found = await discover_domain_id(cookie)
+        if valid is False:
+            return _render_login_page(p, "네이버웍스가 이 쿠키를 거부했습니다. 다시 로그인한 뒤 새로 복사해 주세요.", status_code=400)
+        domain_id = found or resolve_domain_id(None, cookie=cookie)
+    if not domain_id:
+        return _render_login_page(
+            p, "조직 ID를 찾지 못했습니다. 쿠키 값만 붙여넣었다면 같은 요청의 Request URL(/rd/숫자/ 포함)을 '요청 URL' 칸에 넣어 주세요. "
+               "또는 요청을 'Copy as cURL'로 복사해 붙여넣으세요.",
+            status_code=400,
+        )
+
+    # 쿠키 유효성 확인 (해당 조직의 스페이스 목록 조회)
+    res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/spaces", cookie_override=cookie)
     if res.get("status") != 200:
         return _render_login_page(
             p, f"네이버웍스가 이 쿠키를 거부했습니다 (HTTP {res.get('status')}). 다시 로그인한 뒤 새로 복사해 주세요.",
             status_code=400,
         )
+    remember_user_domain(cookie, domain_id)
 
     _purge_expired_codes()
     code = secrets.token_urlsafe(32)
     _auth_codes[code] = {
         "cookie": cookie,
+        "domain_id": domain_id,
         "client_id": p["client_id"],
         "redirect_uri": p["redirect_uri"],
         "code_challenge": p["code_challenge"],
@@ -311,6 +370,6 @@ async def token(request: Request):
         return _token_error("invalid_grant", "PKCE code_verifier 검증에 실패했습니다.")
 
     return JSONResponse(
-        content={"access_token": encode_access_token(entry["cookie"]), "token_type": "Bearer", "expires_in": ACCESS_TOKEN_TTL, "scope": "naverworks"},
+        content={"access_token": encode_access_token(entry["cookie"], entry.get("domain_id")), "token_type": "Bearer", "expires_in": ACCESS_TOKEN_TTL, "scope": "naverworks"},
         headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
     )

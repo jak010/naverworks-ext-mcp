@@ -1,7 +1,8 @@
 import os
 
 BASE_URL = os.getenv("NAVERWORKS_BASE_URL", "https://project.worksmobile.com")
-DEFAULT_DOMAIN_ID = os.getenv("NAVERWORKS_DOMAIN_ID", "123456789")
+# 조직 ID: 기본값 없음. ID·응답·로그인한 웹 페이지에서 사용자별로 알아냅니다. 알아낼 수 없을 때만 쓰는 선택 설정
+DEFAULT_DOMAIN_ID = os.getenv("NAVERWORKS_DOMAIN_ID", "").strip()
 DEFAULT_INSTANCE_CODE = os.getenv("NAVERWORKS_INSTANCE_CODE", "24101")
 COOKIE_JAR_PATH = os.path.expanduser(
     os.getenv("NAVERWORKS_COOKIE_JAR_PATH", "~/.config/naverworks/proj_cookies.txt")
