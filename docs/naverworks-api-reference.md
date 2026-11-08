@@ -45,6 +45,10 @@ NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Pro
 | **작업(Task)** | 작업 본문(Content) 수정 | `POST` | `/rd/{domainId}/api/v1/tasks/{taskId}/content` |
 | **작업(Task)** | 단일 작업 삭제 | `DELETE` | `/rd/{domainId}/api/v1/tasks/{taskId}` |
 | **작업(Task)** | 프로젝트 소속 작업 전체 조회 | `GET` | `/rd/{domainId}/api/v1/tasks?projectId={projectId}` |
+| **작업(Task)** | 작업 댓글 목록 조회 | `GET` | `/rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments` |
+| **작업(Task)** | 작업 댓글 작성 | `POST` | `/rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments` |
+| **작업(Task)** | 작업 댓글 수정 | `POST` | `/rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments/{taskCommentId}/modify-task-comment-content` |
+| **작업(Task)** | 작업 댓글 삭제 | `DELETE` | `/rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments/{taskCommentId}` |
 
 > [!IMPORTANT]
 > - **스페이스/프로젝트/작업 생성, 조회, 수정, 삭제**: Path prefix로 **`/rd/{domainId}/`** 사용 (`domainId` 예: `123456789`)
@@ -148,6 +152,15 @@ NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Pro
 - **작업 본문(Content) 수정**: `POST /rd/{domainId}/api/v1/tasks/{taskId}/content`
   - **Request Body**: `{"content": {"htmlText": "<p>내용</p>", "mentionedUserIds": [], "inlineImages": []}}`
 - **단일 작업 삭제**: `DELETE /rd/{domainId}/api/v1/tasks/{taskId}`
+- **작업 댓글 목록**: `GET /rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments`
+  - 경로에 `rl`(instanceCode)이 필요합니다. 서버는 태스크 상세 응답의 `rl`, 또는 소속 프로젝트(`mainProjectId`)의 `rl`로 결정합니다.
+- **작업 댓글 작성**: `POST /rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments`
+  - **Request Body**: `{"parentTaskCommentId": null, "content": {"htmlText": "댓글 내용", "inlineImages": [], "mentionedUserIds": []}, "files": []}`
+  - 답글은 `parentTaskCommentId`에 부모 댓글 ID를 넣습니다. 작성자는 요청 쿠키의 세션 사용자입니다.
+- **작업 댓글 수정**: `POST /rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments/{taskCommentId}/modify-task-comment-content`
+  - **Request Body**: `{"content": {"htmlText": "수정한 내용", "inlineImages": [], "mentionedUserIds": []}}` (내용 전체 교체)
+- **작업 댓글 삭제**: `DELETE /rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments/{taskCommentId}` (댓글 ID 형식: `tc-{uuid}`)
+  - 목록 응답 형식은 아직 실제 API로 검증하지 않았습니다. 서버의 요약 로직은 흔한 형식(배열, `taskComments`/`comments` 등의 래핑)을 인식하고, 모르는 형식은 원본을 유지합니다.
 - **프로젝트 전체 작업 목록**: `GET /rd/{domainId}/api/v1/tasks?projectId={projectId}`
   - **Response** ✅: `{"projectTasks": [...], "relatedUserIds": [...]}`
   - 목록 항목의 `status`는 객체(`{"taskStatusType": "OPEN", "lastModified": ...}`), `content`는 `htmlText`·`plainText`를 가진 객체입니다.

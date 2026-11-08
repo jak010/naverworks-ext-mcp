@@ -28,6 +28,8 @@ _ID_RE = re.compile(r"^[a-z]{1,4}-(\d+)-")
 # projectId -> rl. rl은 조직 데이터 위치를 나타내는 공개 식별 값이라 사용자 간 공유해도 무방 (쿠키·데이터 아님)
 _RL_CACHE_MAX = 10000
 _rl_cache: Dict[str, str] = {}
+# taskId -> rl (태스크 응답의 rl, 또는 태스크가 속한 프로젝트의 rl)
+_task_rl_cache: Dict[str, str] = {}
 
 
 def domain_from_id(entity_id: Any) -> Optional[str]:
@@ -140,6 +142,7 @@ async def ensure_domain_id(explicit: Optional[str] = None, *entity_ids: Any, coo
 
 def clear_rl_cache() -> None:
     _rl_cache.clear()
+    _task_rl_cache.clear()
 
 
 def remember_rl(data: Any) -> None:
@@ -157,6 +160,11 @@ def remember_rl(data: Any) -> None:
                 if len(_rl_cache) >= _RL_CACHE_MAX:
                     _rl_cache.clear()
                 _rl_cache[pid] = str(rl)
+            tid = node.get("taskId")
+            if isinstance(tid, str) and tid and rl not in (None, ""):
+                if len(_task_rl_cache) >= _RL_CACHE_MAX:
+                    _task_rl_cache.clear()
+                _task_rl_cache[tid] = str(rl)
             stack.extend(v for v in node.values() if isinstance(v, (dict, list)))
 
 
@@ -179,4 +187,29 @@ async def resolve_project_rl(project_id: str, explicit: Optional[str] = None,
         hit = _rl_cache.get(project_id)
         if hit:
             return hit
+    return DEFAULT_INSTANCE_CODE
+
+
+async def resolve_task_rl(task_id: str, explicit: Optional[str] = None, domain_id: Optional[str] = None,
+                          cookie_override: Optional[str] = None) -> str:
+    """태스크의 rl: 명시 값 → 태스크 캐시 → 태스크 상세 조회(응답의 rl, 또는 소속 프로젝트의 rl) → 서버 기본값"""
+    if explicit and str(explicit).strip():
+        return str(explicit).strip()
+    hit = _task_rl_cache.get(task_id)
+    if hit:
+        return hit
+    if domain_id:
+        res = await async_api_request("GET", f"/rd/{domain_id}/api/v1/tasks/{task_id}", cookie_override=cookie_override)
+        if res.get("status") == 200:
+            data = res.get("data")
+            remember_rl(data)
+            hit = _task_rl_cache.get(task_id)
+            if hit:
+                return hit
+            task = data.get("task") if isinstance(data, dict) and isinstance(data.get("task"), dict) else data
+            project_id = task.get("mainProjectId") or task.get("projectId") if isinstance(task, dict) else None
+            if isinstance(project_id, str) and project_id:
+                rl = await resolve_project_rl(project_id, None, cookie_override)
+                _task_rl_cache[task_id] = rl
+                return rl
     return DEFAULT_INSTANCE_CODE

@@ -16,3 +16,13 @@ class TaskContentUpdateRequest(BaseModel):
     htmlText: str = Field(..., description="수정할 본문 내용 (HTML 또는 일반 텍스트)", json_schema_extra={"example": "<p>수정된 내용</p>"})
     domainId: Optional[str] = Field(default=None, description="도메인/테넌트 ID (생략 시 ID에서 자동 추출, 없으면 서버 기본값)")
 
+
+class TaskCommentCreateRequest(BaseModel):
+    htmlText: str = Field(..., min_length=1, description="댓글 내용 (일반 텍스트 또는 HTML)", json_schema_extra={"example": "확인했습니다"})
+    parentTaskCommentId: Optional[str] = Field(default=None, description="답글인 경우 부모 댓글 ID")
+    rl: Optional[str] = Field(default=None, description="rl (생략 시 태스크에서 자동 확인)")
+
+
+class TaskCommentUpdateRequest(BaseModel):
+    htmlText: str = Field(..., min_length=1, description="수정할 댓글 내용 (일반 텍스트 또는 HTML)", json_schema_extra={"example": "수정한 댓글"})
+    rl: Optional[str] = Field(default=None, description="rl (생략 시 태스크에서 자동 확인)")
