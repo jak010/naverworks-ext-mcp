@@ -22,8 +22,11 @@ from app.core import (
 from app.config import (
     DEFAULT_INSTANCE_CODE,
     COOKIE_JAR_PATH,
+    MAIL_BASE_URL,
 )
-from app.core.ids import DomainIdUnknown, ensure_domain_id
+from app.core.ids import DomainIdUnknown, ensure_domain_id, resolve_mail_u
+from app.core.payloads import build_mail_move_payload
+
 
 
 def format_json(data):
@@ -121,6 +124,37 @@ def cmd_get_task(args):
         print(f"❌ 오류 ({res.get('status')}): {res.get('error')}")
 
 
+def cmd_move_mail(args):
+    ensure_cookie_jar()
+    u = resolve_mail_u(args.u)
+    if not u:
+        print("❌ 메일 사용자 식별자(u)를 알 수 없습니다. --u 옵션으로 전달해 주세요 (예: --u 100000000000000).")
+        sys.exit(1)
+
+    form_payload = build_mail_move_payload(
+        u=u,
+        mail_sn_list=args.mail_sn_list,
+        target_folder_sn=args.target_folder_sn,
+        folder_sn=args.folder_sn,
+        emails=args.emails,
+        auto_move=args.auto_move,
+        folder_name=args.folder_name,
+    )
+    res = api_request(
+        method="POST",
+        path="/json/select/move",
+        base_url=MAIL_BASE_URL,
+        form_data=form_payload,
+    )
+    if res.get("status") == 200:
+        print(f"✅ 메일 ({args.mail_sn_list})을 메일함({args.target_folder_sn})으로 성공적으로 이동했습니다.")
+        if res.get("data"):
+            print(format_json(res.get("data")))
+    else:
+        print(f"❌ 이동 실패 ({res.get('status')}): {res.get('error')}")
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="NAVER WORKS 빠른 관리 CLI")
     subparsers = parser.add_subparsers(dest="command", help="사용 가능한 명령어")
@@ -169,6 +203,18 @@ def main():
     p_task.add_argument("task_id", help="Task ID")
     p_task.add_argument("--domain-id", default=None, help="도메인 ID (생략 시 ID 또는 로그인한 계정에서 자동 확인)")
     p_task.set_defaults(func=cmd_get_task)
+
+    # mail move
+    p_mail_move = subparsers.add_parser("mail-move", help="메일을 특정 메일함으로 이동")
+    p_mail_move.add_argument("mail_sn_list", help="이동할 메일 일련번호 (콤마 구분 또는 단일 SN, 예: c203)")
+    p_mail_move.add_argument("target_folder_sn", help="이동 대상 메일함 번호 (예: 101)")
+    p_mail_move.add_argument("--folder-sn", default="0", help="현재 메일함 번호 (기본값: 0 - 받은편지함)")
+    p_mail_move.add_argument("--u", default=None, help="네이버웍스 메일 사용자 식별자 (예: 100000000000000)")
+    p_mail_move.add_argument("--emails", default="", help="이메일 주소 목록")
+    p_mail_move.add_argument("--auto-move", default="0", help="자동 이동 여부 (기본값: 0)")
+    p_mail_move.add_argument("--folder-name", default="", help="메일함 이름")
+    p_mail_move.set_defaults(func=cmd_move_mail)
+
 
     args = parser.parse_args()
     if hasattr(args, "domain_id") and not args.domain_id:

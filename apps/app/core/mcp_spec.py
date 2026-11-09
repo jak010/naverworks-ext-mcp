@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 from app.config import (
     is_local_mode,
     BASE_URL,
+    MAIL_BASE_URL,
     DEFAULT_INSTANCE_CODE,
 )
 from app.core.client import async_api_request
@@ -19,7 +20,16 @@ from app.core.cookie import (
     describe_cookie_source,
 )
 from app.core.auth_context import set_current_user_cookie
-from app.core.ids import DomainIdUnknown, ensure_domain_id, resolve_project_rl, resolve_task_rl, remember_rl, cached_rl
+from app.core.ids import (
+    DomainIdUnknown,
+    ensure_domain_id,
+    resolve_project_rl,
+    resolve_task_rl,
+    remember_rl,
+    cached_rl,
+    resolve_mail_u,
+    remember_user_mail_u,
+)
 
 # 응답 크기 제한 (LLM 토큰 절감)
 LIST_TASKS_DEFAULT_LIMIT = 50
@@ -326,6 +336,48 @@ MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
                 "domainId": {"type": "string", "description": "Optional. Derived from the ID automatically; override only if needed."}
             },
             "required": ["taskId"]
+        }
+    },
+    {
+        "name": "move_mail",
+        "description": "Move one or more emails to a specified mailbox folder in NAVER WORKS Mail (https://mail.worksmobile.com/json/select/move).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mailSNList": {
+                    "type": "string",
+                    "description": "Mail serial number(s) to move (e.g. 'c203' or comma-separated 'c203,c204')."
+                },
+                "targetFolderSN": {
+                    "type": "integer",
+                    "description": "Target mailbox folder serial number to move mail into (e.g. 101)."
+                },
+                "folderSN": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Current mailbox folder serial number (default: 0 for Inbox)."
+                },
+                "u": {
+                    "type": "string",
+                    "description": "NAVER WORKS Mail user identifier (e.g. '100000000000000'). If omitted, automatically resolved from session or cookies."
+                },
+                "emails": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional email address filter (default: '')."
+                },
+                "autoMove": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Auto move rule flag (default: 0)."
+                },
+                "folderName": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional folder name (default: '')."
+                }
+            },
+            "required": ["mailSNList", "targetFolderSN"]
         }
     }
 ]
@@ -983,5 +1035,65 @@ async def _execute_tool(
         res = await async_api_request("DELETE", f"/rd/{domain_id}/api/v1/tasks/{task_id}", cookie_override=cookie_override)
         msg = "Task deleted successfully" if res.get("status") == 200 else f"Failed to delete task: {_short_error(res.get('error'))}"
         return _format_result(msg, is_error=res.get("status") != 200)
+
+    # 4. 네이버웍스 메일 관리
+    elif tool_name == "move_mail":
+        mail_sn_raw = args.get("mailSNList")
+        if not mail_sn_raw:
+            return _format_result({"error": "INVALID_ARGUMENT", "message": "mailSNList(이동할 메일 일련번호)가 필요합니다."}, is_error=True)
+        if isinstance(mail_sn_raw, list):
+            mail_sn_list = ",".join(str(item).strip() for item in mail_sn_raw if str(item).strip())
+        else:
+            mail_sn_list = str(mail_sn_raw).strip()
+
+        target_folder_sn = args.get("targetFolderSN")
+        if target_folder_sn is None or str(target_folder_sn).strip() == "":
+            return _format_result({"error": "INVALID_ARGUMENT", "message": "targetFolderSN(이동할 대상 메일함 번호)가 필요합니다."}, is_error=True)
+        target_folder_sn = str(target_folder_sn).strip()
+
+        u = resolve_mail_u(args.get("u"), cookie=effective_cookie)
+        if not u:
+            return _format_result({
+                "error": "MAIL_USER_UNKNOWN",
+                "message": (
+                    "네이버웍스 메일 사용자 식별자(u)를 알 수 없습니다. "
+                    "메일 이동 요청 파라미터 u (예: '100000000000000')를 지정해 주세요."
+                )
+            }, is_error=True)
+
+        folder_sn = str(args.get("folderSN", 0)).strip()
+        emails = str(args.get("emails", "") or "").strip()
+        auto_move = str(args.get("autoMove", 0)).strip()
+        folder_name = str(args.get("folderName", "") or "").strip()
+
+        form_payload = {
+            "u": u,
+            "mailSNList": mail_sn_list,
+            "folderSN": folder_sn,
+            "emails": emails,
+            "targetFolderSN": target_folder_sn,
+            "autoMove": auto_move,
+            "folderName": folder_name,
+        }
+
+        res = await async_api_request(
+            method="POST",
+            path="/json/select/move",
+            base_url=MAIL_BASE_URL,
+            form_data=form_payload,
+            cookie_override=cookie_override,
+        )
+        if res.get("status") == 200:
+            remember_user_mail_u(effective_cookie, u)
+            data = res.get("data")
+            return _format_result({
+                "success": True,
+                "message": "메일을 성공적으로 대상 메일함으로 이동했습니다.",
+                "mailSNList": mail_sn_list,
+                "targetFolderSN": target_folder_sn,
+                "folderSN": folder_sn,
+                "response": data,
+            })
+        return _error_result(res)
 
     return _format_result(f"Unknown tool: {tool_name}", is_error=True)

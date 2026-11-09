@@ -61,7 +61,10 @@ def mock_upstream(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         owner = request.headers.get("cookie")
-        body = json.loads(request.content) if request.content else None
+        try:
+            body = json.loads(request.content) if request.content else None
+        except Exception:
+            body = request.content.decode("utf-8", "replace") if request.content else None
         path = request.url.path
         calls.append({
             "method": request.method,

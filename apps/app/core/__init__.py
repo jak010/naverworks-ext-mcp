@@ -8,6 +8,7 @@ from app.core.cookie import (
 )
 from app.core.client import api_request, async_api_request
 from app.core.mcp_spec import MCP_TOOLS_SPEC, get_tools_spec, async_execute_tool
+from app.core.mail import move_mail, async_move_mail
 
 __all__ = [
     "ensure_cookie_jar",
@@ -21,5 +22,7 @@ __all__ = [
     "MCP_TOOLS_SPEC",
     "get_tools_spec",
     "async_execute_tool",
+    "move_mail",
+    "async_move_mail",
 ]
 

@@ -182,7 +182,7 @@ LLM의 함수 호출(function calling)에 연결할 때는 `GET /mcp/tools`가 �
 
 ## 6. 도구 목록
 
-두 모드 모두 아래 20개가 제공됩니다. `login_naverworks`만 모드에 따라 동작이 다릅니다.
+두 모드 모두 아래 21개가 제공됩니다. `login_naverworks`만 모드에 따라 동작이 다릅니다.
 
 | 도구 | 설명 | 주요 파라미터 |
 |---|---|---|
@@ -206,6 +206,7 @@ LLM의 함수 호출(function calling)에 연결할 때는 `GET /mcp/tools`가 �
 | `create_task` | 태스크 또는 하위 태스크 생성 | `projectId`, `title`, `htmlText`, `parentTaskId` |
 | `update_task_content` | 태스크 본문 수정 | `taskId`, `htmlText` |
 | `delete_task` | 태스크 영구 삭제 | `taskId` |
+| `move_mail` | 메일을 특정 메일함으로 이동 (선택/다중 이동 지원) | `mailSNList`, `targetFolderSN` (선택: `u`, `folderSN`, `emails`, `autoMove`, `folderName`) |
 
 `domainId`·`instanceCode`(`rl`)는 보통 생략합니다. 직접 넣은 값이 항상 우선합니다.
 

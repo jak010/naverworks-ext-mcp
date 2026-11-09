@@ -23,7 +23,7 @@ AI 도구(Claude Code, Cursor, VS Code, Opencode, Claude Desktop 등)에서 **�
 
 ## 2. 제공 기능
 
-### 2.1 MCP 도구 (20개)
+### 2.1 MCP 도구 (21개)
 
 사용자는 평소 말하듯 요청하면 되고, AI가 알맞은 도구를 골라 실행합니다.
 
@@ -63,6 +63,12 @@ AI 도구(Claude Code, Cursor, VS Code, Opencode, Claude Desktop 등)에서 **�
 | `create_task_comment` | 댓글 작성. `parentTaskCommentId`를 주면 답글 | "'확인했습니다' 댓글 달아줘" |
 | `update_task_comment` | 댓글 내용 교체 | "방금 단 댓글을 …로 고쳐줘" |
 | `delete_task_comment` | 댓글 영구 삭제 | "그 댓글 지워줘" |
+
+**메일**
+
+| 도구 | 기능 | 요청 예시 |
+|---|---|---|
+| `move_mail` | 메일을 특정 메일함으로 이동 (선택/다중 이동 지원) | "'c203' 메일을 101번 메일함으로 이동해줘" |
 
 **인증**
 
@@ -226,6 +232,7 @@ MCP와 같은 인증(헤더 `X-Naverworks-Cookie` 또는 `Authorization: Bearer`
 | `PUT` | `/api/v1/tasks/{task_id}/content` | 태스크 본문 수정 |
 | `GET` / `POST` | `/api/v1/tasks/{task_id}/comments` | 댓글 목록 / 작성 (`htmlText`, 선택 `parentTaskCommentId`) |
 | `PUT` / `DELETE` | `/api/v1/tasks/{task_id}/comments/{comment_id}` | 댓글 수정 / 삭제 |
+| `POST` | `/api/v1/mail/move` | 메일 특정 메일함으로 이동 (`mailSNList`, `targetFolderSN`, 선택 `u`, `folderSN`) |
 | `GET` | `/health`, `/` | 헬스체크, 서버 정보 |
 | `POST` | `/auth/refresh-cookie` | Chrome에서 쿠키 재추출 (`local` 모드 전용) |
 

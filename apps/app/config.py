@@ -1,6 +1,7 @@
 import os
 
 BASE_URL = os.getenv("NAVERWORKS_BASE_URL", "https://project.worksmobile.com")
+MAIL_BASE_URL = os.getenv("NAVERWORKS_MAIL_BASE_URL", "https://mail.worksmobile.com")
 # 조직 ID: 기본값 없음. ID·응답·로그인한 웹 페이지에서 사용자별로 알아냅니다. 알아낼 수 없을 때만 쓰는 선택 설정
 DEFAULT_DOMAIN_ID = os.getenv("NAVERWORKS_DOMAIN_ID", "").strip()
 DEFAULT_INSTANCE_CODE = os.getenv("NAVERWORKS_INSTANCE_CODE", "24101")

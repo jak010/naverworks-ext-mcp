@@ -45,3 +45,30 @@ def build_task_comment_update_payload(html_text: str) -> Dict[str, Any]:
     """태스크 댓글 내용 수정 본문
     (POST /rl/{rl}/api/v1/tasks/{taskId}/task-comments/{taskCommentId}/modify-task-comment-content)"""
     return {"content": {"htmlText": html_text, "inlineImages": [], "mentionedUserIds": []}}
+
+
+def build_mail_move_payload(
+    u: str,
+    mail_sn_list: Any,
+    target_folder_sn: Any,
+    folder_sn: Any = 0,
+    emails: str = "",
+    auto_move: Any = 0,
+    folder_name: str = "",
+) -> Dict[str, Any]:
+    """메일함 이동 API 요청 폼 데이터 생성 (POST https://mail.worksmobile.com/json/select/move)."""
+    if isinstance(mail_sn_list, (list, tuple, set)):
+        mail_sn_str = ",".join(str(s).strip() for s in mail_sn_list if str(s).strip())
+    else:
+        mail_sn_str = str(mail_sn_list).strip()
+
+    return {
+        "u": str(u).strip(),
+        "mailSNList": mail_sn_str,
+        "folderSN": str(folder_sn),
+        "emails": str(emails or ""),
+        "targetFolderSN": str(target_folder_sn),
+        "autoMove": str(auto_move),
+        "folderName": str(folder_name or ""),
+    }
+

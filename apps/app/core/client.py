@@ -3,6 +3,7 @@ import json
 import asyncio
 import hashlib
 import weakref
+import urllib.parse
 import urllib.request
 import urllib.error
 import httpx
@@ -76,9 +77,11 @@ def api_request(
     method: str,
     path: str,
     data: Optional[Dict[str, Any]] = None,
-    cookie_override: Optional[str] = None
+    cookie_override: Optional[str] = None,
+    base_url: Optional[str] = None,
+    form_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Execute synchronous API request against project.worksmobile.com using the active MCP user's cookie."""
+    """Execute synchronous API request against NAVER WORKS using the active MCP user's cookie."""
     cookie_header = cookie_override if cookie_override else get_cookie_header()
     if not cookie_header:
         return {
@@ -86,17 +89,30 @@ def api_request(
             "error": "사용자 네이버웍스 쿠키가 설정되지 않았습니다. MCP 클라이언트 설정(headers) 또는 'set_user_cookie' 도구를 사용해 쿠키를 전달해주세요."
         }
 
+    if path.startswith(("http://", "https://")):
+        url = path
+    elif base_url:
+        url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+    else:
+        url = f"{BASE_URL}{path}"
+
     headers = {
         "Cookie": cookie_header,
-        "Accept": "application/json",
+        "Accept": "application/json, text/plain, */*",
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     }
+    if "mail.worksmobile.com" in url:
+        headers["Referer"] = "https://mail.worksmobile.com/"
+        headers["Origin"] = "https://mail.worksmobile.com"
+
     body = None
-    if data is not None:
+    if form_data is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        body = urllib.parse.urlencode(form_data).encode("utf-8")
+    elif data is not None:
         headers["Content-Type"] = "application/json"
         body = json.dumps(data).encode("utf-8")
 
-    url = f"{BASE_URL}{path}"
     req = urllib.request.Request(url, headers=headers, data=body, method=method)
     try:
         with urllib.request.urlopen(req, timeout=30.0) as resp:
@@ -120,7 +136,9 @@ async def async_api_request(
     method: str,
     path: str,
     data: Optional[Dict[str, Any]] = None,
-    cookie_override: Optional[str] = None
+    cookie_override: Optional[str] = None,
+    base_url: Optional[str] = None,
+    form_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Execute asynchronous API request using shared connection pool with the active MCP user's cookie."""
     cookie_header = cookie_override if cookie_override else get_cookie_header()
@@ -130,25 +148,41 @@ async def async_api_request(
             "error": "사용자 네이버웍스 쿠키가 설정되지 않았습니다. MCP 클라이언트 설정(headers) 또는 'set_user_cookie' 도구를 사용해 쿠키를 전달해주세요."
         }
 
-    url = f"{BASE_URL}{path}"
+    if path.startswith(("http://", "https://")):
+        url = path
+    elif base_url:
+        url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+    else:
+        url = f"{BASE_URL}{path}"
+
     client = await get_async_client()
     semaphore = get_upstream_semaphore()
     user_semaphore = get_user_semaphore(cookie_header)
 
     headers = {
         "Cookie": cookie_header,
-        "Accept": "application/json",
+        "Accept": "application/json, text/plain, */*",
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     }
+    if "mail.worksmobile.com" in url:
+        headers["Referer"] = "https://mail.worksmobile.com/"
+        headers["Origin"] = "https://mail.worksmobile.com"
+
+    req_kwargs: Dict[str, Any] = {
+        "method": method,
+        "url": url,
+        "headers": headers,
+    }
+    if form_data is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        req_kwargs["data"] = form_data
+    elif data is not None:
+        req_kwargs["json"] = data
+
     try:
         # 사용자 슬롯을 먼저 확보한 뒤 전역 슬롯을 잡음 → 자기 차례를 기다리는 동안 전역 슬롯을 점유하지 않음
         async with user_semaphore, semaphore:
-            resp = await client.request(
-                method=method,
-                url=url,
-                headers=headers,
-                json=data if data is not None else None,
-            )
+            resp = await client.request(**req_kwargs)
             if resp.status_code >= 400:
                 try:
                     err_json = resp.json()

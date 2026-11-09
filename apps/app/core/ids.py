@@ -213,3 +213,62 @@ async def resolve_task_rl(task_id: str, explicit: Optional[str] = None, domain_i
                 _task_rl_cache[task_id] = rl
                 return rl
     return DEFAULT_INSTANCE_CODE
+
+
+# 사용자(쿠키 해시) -> 메일 사용자 식별자(u)
+_user_mail_u: Dict[str, str] = {}
+
+
+def clear_mail_u_cache() -> None:
+    _user_mail_u.clear()
+
+
+def remember_user_mail_u(cookie: Optional[str], u: Optional[str]) -> None:
+    key = _cookie_key(cookie)
+    if key and u and str(u).strip():
+        if len(_user_mail_u) >= _USER_DOMAIN_MAX:
+            _user_mail_u.clear()
+        _user_mail_u[key] = str(u).strip()
+
+
+def learned_mail_u(cookie: Optional[str]) -> Optional[str]:
+    key = _cookie_key(cookie)
+    return _user_mail_u.get(key) if key else None
+
+
+def extract_mail_u_from_cookie(cookie: Optional[str]) -> Optional[str]:
+    """쿠키 문자열에서 네이버웍스 메일 사용자 식별자(u)로 유력한 값 추출"""
+    if not cookie:
+        return None
+    for part in cookie.split(";"):
+        if "=" in part:
+            k, v = part.strip().split("=", 1)
+            key_clean = k.strip().lower()
+            if key_clean in ("works_user_no", "userno", "u", "user_no"):
+                val = v.strip()
+                if val:
+                    return val
+            # WORKS_USER_ID가 순수 숫자인 경우 u 후보로 고려
+            if key_clean == "works_user_id":
+                val = v.strip()
+                if val.isdigit() and len(val) >= 10:
+                    return val
+    return None
+
+
+def resolve_mail_u(explicit: Optional[str] = None, cookie: Optional[str] = None) -> Optional[str]:
+    """메일 사용자 식별자(u): 명시 값 → 이전에 기억한 값 → 쿠키 추출"""
+    if explicit and str(explicit).strip():
+        val = str(explicit).strip()
+        remember_user_mail_u(cookie, val)
+        return val
+    cookie = cookie or get_cookie_header()
+    hit = learned_mail_u(cookie)
+    if hit:
+        return hit
+    from_cookie = extract_mail_u_from_cookie(cookie)
+    if from_cookie:
+        remember_user_mail_u(cookie, from_cookie)
+        return from_cookie
+    return None
+

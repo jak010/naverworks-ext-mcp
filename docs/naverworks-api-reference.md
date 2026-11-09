@@ -49,6 +49,8 @@ NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Pro
 | **작업(Task)** | 작업 댓글 작성 | `POST` | `/rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments` |
 | **작업(Task)** | 작업 댓글 수정 | `POST` | `/rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments/{taskCommentId}/modify-task-comment-content` |
 | **작업(Task)** | 작업 댓글 삭제 | `DELETE` | `/rl/{instanceCode}/api/v1/tasks/{taskId}/task-comments/{taskCommentId}` |
+| **메일(Mail)** | 메일함 이동 | `POST` | `https://mail.worksmobile.com/json/select/move` |
+
 
 > [!IMPORTANT]
 > - **스페이스/프로젝트/작업 생성, 조회, 수정, 삭제**: Path prefix로 **`/rd/{domainId}/`** 사용 (`domainId` 예: `123456789`)
@@ -167,7 +169,25 @@ NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Pro
 
 ---
 
-## 6. 오류 처리 요약 (Troubleshooting)
+## 6. 메일 API (Mail API)
+
+### 6.1 메일함 이동 (POST `https://mail.worksmobile.com/json/select/move`)
+- **Headers**: `Content-Type: application/x-www-form-urlencoded; charset=UTF-8`, `Cookie: ...`
+- **Request Parameters (Form urlencoded)**:
+  - `u`: 사용자 고유 식별자 (예: `100000000000000`)
+  - `mailSNList`: 이동할 메일 일련번호 목록 (콤마 구분 또는 단일 값, 예: `c203` 또는 `c203,c204`)
+  - `folderSN`: 현재 메일함 번호 (기본값: `0` - 받은편지함)
+  - `emails`: 이메일 주소 목록 (기본값: 빈 문자열 `""`)
+  - `targetFolderSN`: 이동 대상 메일함 번호 (예: `101`)
+  - `autoMove`: 자동 이동 여부 (`0` 또는 `1`, 기본값: `0`)
+  - `folderName`: 메일함 이름 (선택, 기본값: 빈 문자열 `""`)
+- **FastAPI Endpoint**: `POST /api/v1/mail/move`
+- **MCP Tool**: `move_mail`
+- **CLI**: `python apps/cli.py mail-move <mail_sn_list> <target_folder_sn> [--u <user_id>] [--folder-sn <sn>]`
+
+---
+
+## 7. 오류 처리 요약 (Troubleshooting)
 
 | 상태 코드 | 원인 | 해결 방안 |
 |---|---|---|
