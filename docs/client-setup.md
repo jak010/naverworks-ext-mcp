@@ -34,7 +34,14 @@ claude mcp add --transport http --scope user naverworks https://naverworks-mcp.e
 **Opencode** (`opencode.json`)
 
 ```json
-{ "mcp": { "naverworks": { "type": "remote", "url": "https://naverworks-mcp.example.com/mcp/rpc" } } }
+{
+    "mcp": {
+        "naverworks": {
+            "type": "remote",
+            "url": "https://naverworks-mcp.example.com/mcp/rpc"
+        }
+    }
+}
 ```
 
 설정한 뒤 터미널에서 `opencode mcp auth naverworks`를 실행합니다.
@@ -42,8 +49,18 @@ claude mcp add --transport http --scope user naverworks https://naverworks-mcp.e
 **Claude Desktop** (`claude_desktop_config.json`, Node.js 18 이상 필요)
 
 ```json
-{ "mcpServers": { "naverworks": {
-  "command": "npx", "args": ["-y", "mcp-remote", "https://naverworks-mcp.example.com/mcp/rpc"] } } }
+{
+    "mcpServers": {
+        "naverworks": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "mcp-remote",
+                "https://naverworks-mcp.example.com/mcp/rpc"
+            ]
+        }
+    }
+}
 ```
 
 Claude Desktop을 다시 시작하면 브라우저가 자동으로 열립니다.
