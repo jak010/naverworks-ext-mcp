@@ -159,29 +159,42 @@ COOKIE = "NNB=abc; WORKS_SES=curl-session-0001; WORKS_USER_ID=c"
 URL = f"https://project.worksmobile.com/rd/{OD}/api/v1/spaces"
 
 
-@pytest.mark.parametrize("pasted,url_field", [
-    (f"curl '{URL}' \\\n  -H 'accept: application/json' \\\n  -b '{COOKIE}' \\\n  -H 'user-agent: x'", ""),          # Chrome bash (-b)
-    (f"curl '{URL}' \\\n  -H 'accept: */*' \\\n  -H 'cookie: {COOKIE}'", ""),                                     # 이전 Chrome bash (-H cookie)
-    (f'curl ^"{URL}^" ^\n  -H ^"accept: */*^" ^\n  -b ^"{COOKIE}^"', ""),                                          # Windows cmd
-    (COOKIE, URL),                                                                                                  # 쿠키 + 요청 URL 칸
-    (f"cookie: {COOKIE}", OD),                                                                                      # 쿠키 + 조직 ID 숫자
+@pytest.mark.parametrize("pasted", [
+    f"curl '{URL}' \\\n  -H 'accept: application/json' \\\n  -b '{COOKIE}' \\\n  -H 'user-agent: x'",   # Chrome bash (-b)
+    f"curl '{URL}' \\\n  -H 'accept: */*' \\\n  -H 'cookie: {COOKIE}'",                              # 이전 Chrome bash (-H cookie)
+    f'curl ^"{URL}^" ^\n  -H ^"accept: */*^" ^\n  -b ^"{COOKIE}^"',                                   # Windows cmd
 ])
-def test_parse_login_input(pasted, url_field):
-    assert parse_login_input(pasted, url_field) == (COOKIE, OD)
+def test_parse_login_input(pasted):
+    assert parse_login_input(pasted) == (COOKIE, OD)
+
+
+def test_parse_powershell_copy():
+    """Chrome 'Copy as PowerShell' 붙여넣기에서 쿠키와 조직 ID를 얻습니다."""
+    cookie_adds = "\n".join(
+        f'$session.Cookies.Add((New-Object System.Net.Cookie("{n}", "{v}", "/", ".worksmobile.com")))'
+        for n, v in (pair.split("=", 1) for pair in COOKIE.split("; "))
+    )
+    ps = (
+        "$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession\n"
+        f"{cookie_adds}\n"
+        f'Invoke-WebRequest -UseBasicParsing -Uri "{URL}" -WebSession $session -Headers @{{"accept"="application/json"}}'
+    )
+    assert parse_login_input(ps) == (COOKIE, OD)
 
 
 def test_parse_cookie_only_has_no_domain():
-    assert parse_login_input(COOKIE, "") == (COOKIE, None)
+    assert parse_login_input(COOKIE) == (COOKIE, None)
+    assert parse_login_input(f"cookie: {COOKIE}") == (COOKIE, None)
 
 
-def login_and_get_token(client, pasted, url_field=""):
+def login_and_get_token(client, pasted):
     import base64, hashlib, secrets
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     cid = client.post("/oauth/register", json={"redirect_uris": [REDIRECT]}).json()["client_id"]
     params = {"response_type": "code", "client_id": cid, "redirect_uri": REDIRECT,
               "code_challenge": challenge, "code_challenge_method": "S256", "state": "s"}
-    r = client.post("/oauth/authorize", data={**params, "cookie": pasted, "request_url": url_field}, follow_redirects=False)
+    r = client.post("/oauth/authorize", data={**params, "cookie": pasted}, follow_redirects=False)
     assert r.status_code == 303, r.text
     code = r.headers["location"].split("code=")[1].split("&")[0]
     tok = client.post("/oauth/token", data={"grant_type": "authorization_code", "code": code, "code_verifier": verifier,
@@ -205,11 +218,12 @@ def test_curl_login_puts_domain_in_token_and_survives_restart(client, monkeypatc
     assert ("GET", f"/rd/{OD}/api/v1/spaces", COOKIE) in calls and page_fetches(calls) == []
 
 
-def test_login_without_domain_asks_for_request_url(client, monkeypatch):
+def test_login_without_domain_asks_for_rd_curl(client, monkeypatch):
     monkeypatch.setattr(config, "OAUTH_ENABLED", True)
     make_upstream(monkeypatch, page="<html>no org info</html>")
     r = submit_login(client, COOKIE)
-    assert r.status_code == 400 and "요청 URL" in r.text and 'name="request_url"' in r.text
+    assert r.status_code == 400 and "조직 ID를 찾지 못했습니다" in r.text and "/rd/" in r.text
+    assert 'name="request_url"' not in r.text
 
 
 def test_domain_header_for_header_clients(client, monkeypatch):

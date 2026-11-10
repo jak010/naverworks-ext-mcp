@@ -167,29 +167,47 @@ _CURL_COOKIE_RES = (
     re.compile(r"""(?:-H|--header)\s+(['"])cookie:\s*(.*?)\1""", re.I | re.S),
     re.compile(r"""(?:-b|--cookie)\s+(['"])(.*?)\1""", re.S),
 )
+# "Copy as PowerShell"의 쿠키: $session.Cookies.Add((New-Object System.Net.Cookie("이름", "값", ...)))
+_PS_COOKIE_RE = re.compile(r"""System\.Net\.Cookie\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)\"""", re.S)
 
 
-def parse_login_input(pasted: str, request_url: str = "") -> "tuple[str, Optional[str]]":
+def _looks_like_curl(text: str) -> bool:
+    return bool(re.search(r"(^|\s)curl(\.exe)?\s", text.strip() + " ", re.I)) or text.lstrip().lower().startswith("curl")
+
+
+def _looks_like_powershell(text: str) -> bool:
+    return "System.Net.Cookie" in text or "Microsoft.PowerShell" in text
+
+
+def _cookie_from_powershell(text: str) -> str:
+    """PowerShell 복사본의 System.Net.Cookie(...) 호출들을 name=value 로 모읍니다."""
+    pairs = []
+    for name, value in _PS_COOKIE_RE.findall(text):
+        name = name.replace('\\"', '"').replace("`\"", '"').strip()
+        value = value.replace('\\"', '"').replace("`\"", '"').strip()
+        if name:
+            pairs.append(f"{name}={value}")
+    return "; ".join(pairs)
+
+
+def parse_login_input(pasted: str) -> "tuple[str, Optional[str]]":
     """로그인 페이지 입력에서 (쿠키, 조직 ID)를 꺼냅니다.
-    - "Copy as cURL" 전체를 붙여넣으면 요청 URL(/rd/{조직 ID}/...)과 쿠키를 모두 얻습니다.
-    - 쿠키 값만 붙여넣은 경우 조직 ID는 '요청 URL' 칸(또는 숫자만)에서 얻습니다."""
+    - "Copy as cURL" / "Copy as PowerShell" 전체를 붙여넣으면 쿠키를 꺼내고, 주소에 /rd/{조직 ID}/ 가 있으면 조직 ID도 함께 얻습니다.
+    - 쿠키 값만 붙여넣어도 됩니다. 이때 조직 ID는 None 이며, 서버가 로그인한 웹 페이지에서 자동으로 찾습니다."""
     text = pasted or ""
-    url_text = (request_url or "").strip()
-    domain = None
-    if url_text.isdigit() and len(url_text) >= 3:
-        domain = url_text
-    else:
-        m = _RD_DOMAIN_RE.search(url_text) or _RD_DOMAIN_RE.search(text)
-        domain = m.group(1) if m else None
+    m = _RD_DOMAIN_RE.search(text)
+    domain = m.group(1) if m else None
 
-    cookie = ""
-    if re.search(r"(^|\s)curl(\.exe)?\s", text.strip() + " ", re.I) or text.lstrip().lower().startswith("curl"):
+    if _looks_like_curl(text):
         unescaped = text.replace("^\"", "\"").replace("^%", "%").replace("^&", "&").replace("^", "") if '^"' in text else text
+        cookie = ""
         for pat in _CURL_COOKIE_RES:
             m = pat.search(unescaped)
             if m:
                 cookie = m.group(2)
                 break
+    elif _looks_like_powershell(text):
+        cookie = _cookie_from_powershell(text)
     else:
         cookie = text
     return _normalize_cookie(cookie), domain
@@ -212,6 +230,32 @@ def _validate_authorize(p: Dict[str, str]) -> Optional[str]:
     return None
 
 
+# 붙여넣는 즉시 세션 쿠키 포함 여부를 알려 주는 클라이언트 검증 (서버 검증을 대체하지 않음, 실패 왕복만 줄임)
+_LOGIN_SCRIPT = """<script>
+(function () {
+  var ta = document.getElementById('cookie');
+  var status = document.getElementById('cookie-status');
+  if (!ta || !status) return;
+  function update() {
+    var v = (ta.value || '').trim();
+    if (!v) { status.textContent = ''; status.className = 'muted'; return; }
+    if (/WORKS_SES=/.test(v)) {
+      status.textContent = '\\u2713 네이버웍스 세션을 찾았습니다. [로그인 완료]를 누르세요.';
+      status.className = 'ok';
+    } else if (/[^=\\s;]+=[^;]+/.test(v)) {
+      status.textContent = '세션 쿠키(WORKS_SES)가 보이지 않습니다. 네이버웍스에 로그인된 상태의 요청을 복사했는지 확인하세요. 그대로 제출하면 서버가 다시 확인합니다.';
+      status.className = 'warn';
+    } else {
+      status.textContent = '쿠키를 찾지 못했습니다. 요청을 마우스 오른쪽 클릭 → Copy → Copy as cURL 로 복사해 붙여넣으세요.';
+      status.className = 'warn';
+    }
+  }
+  ta.addEventListener('input', update);
+  ta.addEventListener('paste', function () { setTimeout(update, 0); });
+})();
+</script>"""
+
+
 def _render_login_page(p: Dict[str, str], error: Optional[str] = None, status_code: int = 200) -> HTMLResponse:
     hidden = "\n".join(
         f'<input type="hidden" name="{k}" value="{html.escape(v, quote=True)}">' for k, v in p.items()
@@ -222,8 +266,8 @@ def _render_login_page(p: Dict[str, str], error: Optional[str] = None, status_co
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>네이버웍스 MCP 로그인</title>
 <style>
-:root {{ --bg:#f6f7f9; --card:#fff; --fg:#1d1f23; --muted:#5b6270; --accent:#00a86b; --err:#c62828; --border:#dde1e6; }}
-@media (prefers-color-scheme: dark) {{ :root {{ --bg:#15171a; --card:#1e2125; --fg:#e8eaed; --muted:#9aa0a6; --border:#33373d; --err:#ef5350; }} }}
+:root {{ --bg:#f6f7f9; --card:#fff; --fg:#1d1f23; --muted:#5b6270; --accent:#00a86b; --err:#c62828; --warn:#b26a00; --border:#dde1e6; }}
+@media (prefers-color-scheme: dark) {{ :root {{ --bg:#15171a; --card:#1e2125; --fg:#e8eaed; --muted:#9aa0a6; --border:#33373d; --err:#ef5350; --warn:#e0a030; }} }}
 body {{ margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; }}
 main {{ max-width:640px; margin:40px auto; padding:0 16px; }}
 .card {{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; }}
@@ -236,6 +280,9 @@ input {{ width:100%; box-sizing:border-box; margin:8px 0 12px; padding:10px; bor
 textarea {{ width:100%; box-sizing:border-box; min-height:120px; margin:8px 0 12px; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); font:13px ui-monospace,Menlo,monospace; }}
 .err {{ color:var(--err); font-weight:600; }}
 .muted {{ color:var(--muted); font-size:13px; }}
+#cookie-status {{ min-height:20px; margin:-4px 0 12px; font-size:13px; }}
+#cookie-status.ok {{ color:var(--accent); font-weight:600; }}
+#cookie-status.warn {{ color:var(--warn); }}
 </style></head>
 <body><main><div class="card">
 <h1>네이버웍스 MCP 로그인</h1>
@@ -244,22 +291,20 @@ textarea {{ width:100%; box-sizing:border-box; min-height:120px; margin:8px 0 12
 <ol>
   <li>열린 네이버웍스 탭에서 로그인합니다.</li>
   <li>개발자 도구를 엽니다. (Windows/Linux: <code>F12</code>, macOS: <code>⌥⌘I</code>)</li>
-  <li><b>Network</b> 탭 → 페이지 새로고침 → 필터에 <code>/rd/</code> 입력 (주소에 <code>/rd/숫자/</code>가 있는 요청)</li>
-  <li>목록의 아무 요청이나 <b>마우스 오른쪽 클릭 → Copy → Copy as cURL</b> (Windows는 <i>Copy as cURL (bash)</i> 권장)</li>
+  <li><b>Network</b> 탭 → 페이지 새로고침 → 목록에 뜨는 <b>아무 요청이나</b> 마우스 오른쪽 클릭 → <b>Copy → Copy as cURL</b></li>
 </ol>
-<p class="muted">cURL에는 로그인 쿠키와 조직 ID(요청 주소의 <code>/rd/숫자/</code>)가 함께 들어 있어 한 번에 설정됩니다.
-cURL 대신 <b>Request Headers</b>의 <code>cookie:</code> 값만 복사했다면, 아래 <b>요청 URL</b> 칸에 그 요청의 Request URL도 붙여넣으세요.</p>
+<p class="muted">특정 요청을 고르거나 필터를 걸 필요 없이, 로그인된 상태의 요청이면 됩니다. (Windows는 <i>Copy as cURL (bash)</i>, PowerShell 복사본도 됩니다.)
+조직 ID는 서버가 자동으로 찾습니다.</p>
 {err}
 <form method="post" action="/oauth/authorize">
 {hidden}
 <label for="cookie"><b>2. 복사한 cURL(또는 쿠키) 붙여넣기</b></label>
-<textarea id="cookie" name="cookie" required placeholder="curl 'https://project.worksmobile.com/rd/.../api/v1/...' -H '...' -b 'WORKS_SES=...'"></textarea>
-<label for="request_url"><b>요청 URL</b> <span class="muted">(쿠키 값만 붙여넣은 경우)</span></label>
-<input id="request_url" name="request_url" placeholder="https://project.worksmobile.com/rd/123456789/api/v1/spaces">
+<textarea id="cookie" name="cookie" required placeholder="curl 'https://project.worksmobile.com/...' -H '...' -b 'WORKS_SES=...'"></textarea>
+<div id="cookie-status" class="muted" aria-live="polite"></div>
 <button type="submit">로그인 완료</button>
 </form>
 <p class="muted">쿠키와 조직 ID는 이 서버에 저장되지 않고, 검증 후 사용 중인 AI 도구에만 전달됩니다.</p>
-</div></main></body></html>"""
+</div></main>{_LOGIN_SCRIPT}</body></html>"""
     return HTMLResponse(page, status_code=status_code, headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY"})
 
 
@@ -280,14 +325,14 @@ async def authorize_submit(request: Request):
     if problem:
         return HTMLResponse(f"<p>잘못된 인증 요청: {html.escape(problem)}</p>", status_code=400)
 
-    cookie, domain_id = parse_login_input(form.get("cookie", ""), form.get("request_url", ""))
+    cookie, domain_id = parse_login_input(form.get("cookie", ""))
     if len(cookie) < 20 or "=" not in cookie:
         return _render_login_page(
             p, "쿠키를 찾지 못했습니다. 요청을 'Copy as cURL'로 복사했는지, 또는 cookie: 값 전체를 붙여넣었는지 확인해 주세요.",
             status_code=400,
         )
 
-    # 조직 ID: 붙여넣은 cURL/요청 URL → (없으면) 로그인한 웹 페이지 → 서버 설정
+    # 조직 ID: 붙여넣은 cURL의 주소 → (없으면) 로그인한 웹 페이지 → 서버 설정
     if not domain_id:
         valid, found = await discover_domain_id(cookie)
         if valid is False:
@@ -295,8 +340,8 @@ async def authorize_submit(request: Request):
         domain_id = found or resolve_domain_id(None, cookie=cookie)
     if not domain_id:
         return _render_login_page(
-            p, "조직 ID를 찾지 못했습니다. 쿠키 값만 붙여넣었다면 같은 요청의 Request URL(/rd/숫자/ 포함)을 '요청 URL' 칸에 넣어 주세요. "
-               "또는 요청을 'Copy as cURL'로 복사해 붙여넣으세요.",
+            p, "조직 ID를 찾지 못했습니다. Network 탭 필터에 /rd/ 를 입력해 주소에 /rd/숫자/ 가 있는 요청을 고른 뒤, "
+               "'Copy as cURL'로 복사해 다시 붙여넣어 주세요.",
             status_code=400,
         )
 
