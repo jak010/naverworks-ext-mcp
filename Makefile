@@ -2,13 +2,18 @@ PY := .venv/bin/python
 LIVE_COOKIE ?= $(HOME)/.config/naverworks/proj_cookies.txt
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
-.PHONY: help setup dev run test test-live lint spaces projects docker-build docker-up docker-down clean
+.PHONY: help setup dev run test test-live lint spaces projects docker-build docker-up docker-down clean start stop restart status logs daemon-start daemon-stop daemon-restart daemon-status daemon-logs
 
 help:
 	@echo "NAVER WORKS MCP 서버 명령어 모음:"
 	@echo "  make setup        - 가상환경 + 개발 의존성 설치, Chrome 쿠키 연동, API 연결 확인 (macOS, deploy/setup.sh)"
 	@echo "  make dev          - 가상환경 + 개발 의존성만 설치 (쿠키 연동 없음)"
-	@echo "  make run          - HTTP 서버 실행 (개발용, 자동 재시작, 기본 포트: 9050, deploy/run.sh)"
+	@echo "  make run          - HTTP 서버 전면 실행 (포그라운드, 기본 포트: 9050, deploy/run.sh)"
+	@echo "  make start        - HTTP 서버 백그라운드(데몬) 실행 (deploy/daemon.sh start)"
+	@echo "  make stop         - 백그라운드 서버 종료 (deploy/daemon.sh stop)"
+	@echo "  make restart      - 백그라운드 서버 재시작 (deploy/daemon.sh restart)"
+	@echo "  make status       - 백그라운드 서버 상태 및 헬스체크 (deploy/daemon.sh status)"
+	@echo "  make logs         - 백그라운드 서버 실시간 로그 확인 (deploy/daemon.sh logs)"
 	@echo "  make test         - 테스트 실행 (네이버웍스는 mock, 실제 요청 없음)"
 	@echo "  make test-live    - 실제 네이버웍스 CRUD 테스트 ([MCP-TEST] 리소스 생성 후 삭제, LIVE_COOKIE=쿠키파일)"
 	@echo "  make lint         - pyflakes 정적 검사"
@@ -18,6 +23,7 @@ help:
 	@echo "  make docker-up    - Docker Compose로 백그라운드 실행 (multi_user 모드)"
 	@echo "  make docker-down  - Docker 컨테이너 종료"
 	@echo "  make clean        - 파이썬 캐시 및 임시 파일 정리"
+
 
 setup:
 	deploy/setup.sh
@@ -29,6 +35,28 @@ dev:
 
 run:
 	deploy/run.sh
+
+start:
+	deploy/daemon.sh start
+
+stop:
+	deploy/daemon.sh stop
+
+restart:
+	deploy/daemon.sh restart
+
+status:
+	deploy/daemon.sh status
+
+logs:
+	deploy/daemon.sh logs
+
+daemon-start: start
+daemon-stop: stop
+daemon-restart: restart
+daemon-status: status
+daemon-logs: logs
+
 
 test:
 	$(PY) -m pytest

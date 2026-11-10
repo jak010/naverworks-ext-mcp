@@ -20,6 +20,8 @@ htmlcov/
 .env.*
 !.env.example
 *.log
+*.pid
+
 
 # 네이버웍스 쿠키 파일 (실수로 저장소 안에 만든 경우 대비)
 cookie.txt

@@ -132,7 +132,11 @@ make docker-build && make docker-up
 docker compose -f deploy/docker-compose.yml logs -f
 
 # Python 직접 실행 (.venv 자동 생성, 코드 변경 시 자동 재시작)
-make run                       # = deploy/run.sh
+make run                       # = deploy/run.sh (포그라운드)
+make start                     # 백그라운드(데몬) 실행 (deploy/daemon.sh start)
+make status                    # 실행 상태 확인
+make logs                      # 실시간 로그 확인
+make stop                      # 백그라운드 서버 종료
 
 # 수동 실행
 source .venv/bin/activate
