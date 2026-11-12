@@ -2,7 +2,7 @@ PY := .venv/bin/python
 LIVE_COOKIE ?= $(HOME)/.config/naverworks/proj_cookies.txt
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
-.PHONY: help setup dev run test test-live lint spaces projects docker-build docker-up docker-down clean start stop restart status logs daemon-start daemon-stop daemon-restart daemon-status daemon-logs
+.PHONY: help setup dev run test test-live lint spaces projects docker-build docker-up docker-down clean start stop restart status logs daemon-start daemon-stop daemon-restart daemon-status daemon-logs playground
 
 help:
 	@echo "NAVER WORKS MCP 서버 명령어 모음:"
@@ -65,7 +65,11 @@ test-live:
 	NAVERWORKS_LIVE_COOKIE_PATH="$(LIVE_COOKIE)" $(PY) -m pytest tests/test_live_crud.py -v
 
 lint:
-	$(PY) -m pyflakes apps tests
+	$(PY) -m pyflakes apps tests playground
+
+playground:
+	$(PY) playground/test_api_runner.py
+
 
 spaces:
 	$(PY) apps/cli.py spaces
