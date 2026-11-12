@@ -15,12 +15,18 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# 환경 변수 / 비밀 값 (쿠키 등) — 예시 파일만 커밋
+# 환경 변수 / 비밀 값 (쿠키, 개인키 등) — 예시 파일만 커밋
 .env
 .env.*
 !.env.example
 *.log
 *.pid
+*.key
+*.pem
+*.p8
+*.pkcs8
+private_key*
+*private*.key
 
 
 # 네이버웍스 쿠키 파일 (실수로 저장소 안에 만든 경우 대비)
