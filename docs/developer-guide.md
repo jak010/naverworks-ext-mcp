@@ -3,6 +3,8 @@
 NAVER WORKS MCP 서버를 **실행**하고, MCP 클라이언트·에이전트 프레임워크·직접 작성한 코드에서 **연동**하는 방법을 설명합니다.
 
 > 👤 **일반 사용자**가 내 PC의 AI 도구(Claude Desktop, Claude Code, Cursor, VS Code, Opencode)를 공용 서버에 연결하는 방법은 [client-setup](client-setup.md)을 보세요.
+>
+> ⚠️ **면책 조항 (Disclaimer)**: 본 프로젝트는 개인적·연구 목적으로 제작된 비공식 오픈소스 도구이며, NAVER WORKS 또는 WORKS MOBILE과 공식적인 제휴 또는 후원 관계가 없습니다. 네이버웍스의 내부 웹 API 변경 시 사전 공지 없이 기능이 동작하지 않을 수 있습니다.
 
 ---
 
@@ -28,9 +30,20 @@ make setup           # = deploy/setup.sh
 ### 1.3 실행
 
 ```bash
-make run             # 개발용 HTTP 서버 (multi_user, 자동 재시작, http://localhost:9050)
+# 개발용 포그라운드 실행 (multi_user, 코드 변경 시 자동 재시작, http://localhost:9050)
+make run
 NAVERWORKS_AUTH_MODE=local make run    # 본인 PC 단독 사용 (127.0.0.1 에만 바인드, 로컬 쿠키 파일 사용)
-make docker-up       # 운영: Docker Compose (multi_user) — deploy/docker-compose.yml
+
+# 백그라운드(데몬) 실행 및 관리 (nohup 기반 스크립트: deploy/daemon.sh)
+make start           # 백그라운드 서버 실행 (포트 9050, app.log에 로그 기록, .pid 생성)
+make status          # 서버 프로세스 및 헬스체크(http://localhost:9050/health) 상태 확인
+make logs            # 실시간 로그 확인 (tail -f app.log)
+make restart         # 백그라운드 서버 재시작
+make stop            # 백그라운드 서버 안전 종료
+
+# 운영: Docker Compose (multi_user) — deploy/docker-compose.yml
+make docker-build && make docker-up
+make docker-down
 ```
 
 > 운영 환경에서는 반드시 **HTTPS 리버스 프록시** 뒤에 두세요. 서버 자체는 TLS를 제공하지 않으며, 사용자 쿠키가 요청 헤더로 오갑니다.
@@ -86,7 +99,7 @@ make docker-up       # 운영: Docker Compose (multi_user) — deploy/docker-com
 - 끄려면 `NAVERWORKS_OAUTH_ENABLED=false` (쿠키 없는 `/mcp/rpc` 요청도 200으로 처리하고 도구가 `UNAUTHORIZED`를 반환하는 이전 동작).
 - `local` 모드에서는 로컬 쿠키 파일 등 쿠키를 하나도 찾지 못한 경우에만 401을 돌려줍니다.
 
-REST API(`/api/v1/spaces`, `/api/v1/projects`, `/api/v1/tasks`)도 같은 쿠키 헤더로 인증합니다. 전체 목록은 [README의 API 엔드포인트 요약](../README.md#64-rest-api)을 참고하세요.
+REST API(`/api/v1/spaces`, `/api/v1/projects`, `/api/v1/tasks`, `/api/v1/mail/move`)도 같은 쿠키 헤더로 인증합니다. 전체 목록은 [README의 API 엔드포인트 요약](../README.md#64-rest-api)을 참고하세요.
 
 ---
 
@@ -117,7 +130,7 @@ REST API(`/api/v1/spaces`, `/api/v1/projects`, `/api/v1/tasks`)도 같은 쿠키
 | 클라이언트 | 연결 방식 요약 |
 |---|---|
 | Claude Desktop | 설정 파일에서 원격 서버에 커스텀 헤더를 직접 지정할 수 없으므로 `npx mcp-remote <URL> --transport sse-only --header "X-Naverworks-Cookie:${NW_COOKIE}"` 로 연결 (Node.js 18+) |
-| Claude Code | `claude mcp add --transport sse naverworks <URL> --header "X-Naverworks-Cookie: <쿠키>"` |
+| Claude Code | `claude mcp add --transport http --scope user naverworks <URL>/mcp/rpc` (등록 후 `/mcp` 실행 → `naverworks` 선택 후 Authenticate로 브라우저 OAuth 로그인 진행) |
 | Cursor | `mcp.json`에 `"url"` + `"headers"` |
 | VS Code (Copilot) | `mcp.json`에 `"type": "sse"` + `"headers"` (`${input:...}`으로 쿠키를 입력창에서 받기 가능) |
 | Opencode | 원격 서버는 Streamable HTTP만 지원 → URL을 **`/mcp/rpc`** 로. 권장: 헤더 없이 등록 후 `opencode mcp auth naverworks`로 OAuth 브라우저 로그인. 또는 `"oauth": false` + 헤더 `{file:~/.config/naverworks/cookie.txt}` (파일이 없으면 설정 전체 로드 실패) → [03-opencode.md](client-setup.md) |
@@ -174,6 +187,9 @@ print(call_tool("list_spaces", {}))
 
 # REST API (네이버웍스 원본 응답을 그대로 반환)
 print(httpx.get(f"{BASE_URL}/api/v1/tasks", params={"project_id": "p-..."}, headers=HEADERS, timeout=60).json())
+
+# 메일 이동 REST API
+print(httpx.post(f"{BASE_URL}/api/v1/mail/move", json={"mailSNList": "c203", "targetFolderSN": 101}, headers=HEADERS, timeout=60).json())
 ```
 
 LLM의 함수 호출(function calling)에 연결할 때는 `GET /mcp/tools`가 돌려주는 `inputSchema`(JSON Schema)를 도구 정의로 그대로 사용할 수 있습니다. OpenAPI 기반 도구 생성기를 쓰는 경우 `GET /openapi.json`을 사용하되, 쿠키 헤더를 붙이도록 설정해야 합니다.

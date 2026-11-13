@@ -1,10 +1,12 @@
+>  **작성자 코멘트 및 주의사항**     
+본 프로젝트는 개인적·연구 목적으로 제작된 비공식 오픈소스 도구이며, NAVER WORKS 또는 WORKS MOBILE과 공식적인 제휴 또는 후원 관계가 없습니다. 네이버웍스의 내부 웹 API 변경 시 사전 공지 없이 기능이 동작하지 않을 수 있습니다.
+
 # NAVER WORKS Project MCP Server
 
 AI 도구(Claude Code, Cursor, VS Code, Opencode, Claude Desktop 등)에서 **네이버웍스 Project를 대화로 다룰 수 있게 해 주는 MCP 서버**입니다. 스페이스, 프로젝트, 태스크, 태스크 댓글을 조회하고 만들고 고치고 지울 수 있습니다. 같은 기능을 REST API로도 제공합니다.
 
 > 🚀 **처음이라면 [INSTALL.md](INSTALL.md)부터 보세요.** 공용 서버 연결, 서버 띄우기, 로컬 모드 설치를 한 장에 요약했습니다.
 >
-> ⚠️ **면책 조항 (Disclaimer)**: 본 프로젝트는 개인적·연구 목적으로 제작된 비공식 오픈소스 도구이며, NAVER WORKS 또는 WORKS MOBILE과 공식적인 제휴 또는 후원 관계가 없습니다. 네이버웍스의 내부 웹 API 변경 시 사전 공지 없이 기능이 동작하지 않을 수 있습니다.
 
 ---
 

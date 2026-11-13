@@ -59,7 +59,11 @@ make docker-build && make docker-up   # 이미지 빌드 후 백그라운드 실
 **Python으로 직접 실행** (Python 3.10 이상):
 
 ```bash
-make run              # .venv 생성 + 의존성 설치 + http://localhost:9050 실행
+make run              # 포그라운드 실행 (.venv 생성 + 의존성 설치 + http://localhost:9050)
+make start            # 백그라운드(데몬) 실행 (deploy/daemon.sh)
+make status           # 백그라운드 서버 상태 확인
+make logs             # 실시간 로그 확인
+make stop             # 백그라운드 서버 종료
 ```
 
 - 기본 설정은 `multi_user` 모드입니다. 서버는 쿠키를 저장하지 않고, 사용자마다 자기 쿠키로 요청합니다.

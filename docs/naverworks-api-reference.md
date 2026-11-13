@@ -1,8 +1,10 @@
 # NAVER WORKS Spaces & Project API Guide
 
-NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Project)** 및 **작업(Task)** 관련 Internal API 가이드입니다.
+NAVER WORKS Project 웹 서비스의 **스페이스(Space)**, **프로젝트(Project)**, **작업(Task)** 및 **메일(Mail)** 관련 Internal API 가이드입니다.
 
-> 공개 API가 아닌 웹 서비스 내부 API이므로 예고 없이 바뀔 수 있습니다. ✅ 표시는 2026-11-07 실제 API로 확인한 동작입니다.
+> ⚠️ **면책 조항 (Disclaimer)**: 본 문서는 비공식 오픈소스 도구 개발 및 유지보수를 위한 내부 API 분석 자료이며, NAVER WORKS 또는 WORKS MOBILE과 공식 제휴 관계가 없습니다. 내부 웹 API 변경 시 사전 공지 없이 기능이 동작하지 않을 수 있습니다.
+>
+> 공개 API가 아닌 웹 서비스 내부 API이므로 예고 없이 바뀔 수 있습니다. ✅ 표시는 실제 API로 검증 완료된 동작입니다.
 
 ---
 

@@ -10,10 +10,16 @@ AI 도구에는 **서버 주소만 등록**하면 됩니다. 처음 연결할 �
 **Claude Code**
 
 ```bash
+# 기본 사용자 전체 범위 등록 (서버명: naverworks)
 claude mcp add --transport http --scope user naverworks https://naverworks-mcp.example.com/mcp/rpc
+
+# 사내 원격 서버 또는 포트 지정 시 (예: naverworks-ext 이름으로 등록)
+claude mcp add --transport http --scope user naverworks-ext http://192.168.10.219:9050/mcp/rpc
 ```
 
-등록한 뒤 Claude Code에서 `/mcp`를 실행하고, `naverworks`를 고른 다음 **Authenticate**를 누릅니다.
+- 등록한 뒤 Claude Code에서 `/mcp`를 실행하고, 등록한 서버 이름(`naverworks` 또는 `naverworks-ext`)을 고른 다음 **Authenticate**를 누릅니다.
+- 브라우저에 **네이버웍스 MCP 로그인** 페이지가 자동으로 열립니다.
+- 만약 특정 프로젝트 폴더에만 적용하고 싶다면 `--scope project` 옵션을 사용할 수 있습니다.
 
 **Cursor** (`~/.cursor/mcp.json`)
 
