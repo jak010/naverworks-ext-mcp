@@ -1,9 +1,9 @@
->  **작성자 코멘트 및 주의사항**     
-본 프로젝트는 개인적·연구 목적으로 제작된 비공식 오픈소스 도구이며, NAVER WORKS 또는 WORKS MOBILE과 공식적인 제휴 또는 후원 관계가 없습니다. 네이버웍스의 내부 웹 API 변경 시 사전 공지 없이 기능이 동작하지 않을 수 있습니다.
+> **작성자 코멘트 및 주의사항**     
+> 본 프로젝트는 개인적·연구 목적으로 제작된 비공식 오픈소스 도구이며, NAVER WORKS 또는 WORKS MOBILE과 공식적인 제휴 또는 후원 관계가 없습니다. 네이버웍스의 내부 웹 API 변경 시 사전 공지 없이 기능이 동작하지 않을 수 있습니다.
 
-# NAVER WORKS Project MCP Server
+# NAVER WORKS Ext MCP Server (Project & Mail)
 
-AI 도구(Claude Code, Cursor, VS Code, Opencode, Claude Desktop 등)에서 **네이버웍스 Project를 대화로 다룰 수 있게 해 주는 MCP 서버**입니다. 스페이스, 프로젝트, 태스크, 태스크 댓글을 조회하고 만들고 고치고 지울 수 있습니다. 같은 기능을 REST API로도 제공합니다.
+AI 도구(Claude Code, Cursor, VS Code, Opencode, Claude Desktop 등)에서 **네이버웍스 Project 및 Mail을 대화로 다룰 수 있게 해 주는 확장 MCP 서버**입니다. 스페이스, 프로젝트, 태스크, 태스크 댓글의 조회·생성·수정·삭제 및 메일 이동 기능을 수행할 수 있으며, 같은 기능을 REST API로도 제공합니다.
 
 > 🚀 **처음이라면 [INSTALL.md](INSTALL.md)부터 보세요.** 공용 서버 연결, 서버 띄우기, 로컬 모드 설치를 한 장에 요약했습니다.
 >
@@ -122,9 +122,9 @@ AI 도구(Claude Code, Cursor, VS Code, Opencode, Claude Desktop 등)에서 **�
 | 문서 | 대상 | 내용 |
 |---|---|---|
 | [INSTALL.md](INSTALL.md) | 모두 | 설치 방식별 한 장 요약 |
-| [docs/client-setup.md](docs/client-setup.md) | 사용자 | AI 도구 등록, 브라우저 로그인, 사용 예시, 문제 해결 |
-| [docs/developer-guide.md](docs/developer-guide.md) | 개발자·운영자 | 인증 모드, MCP 엔드포인트, OAuth 흐름, 쿠키 전달 방식, 도구별 인자, 코드에서 호출 |
-| [docs/naverworks-api-reference.md](docs/naverworks-api-reference.md) | 개발자 | 네이버웍스 Project 내부 API 명세 |
+| [docs/client-setup.md](docs/client-setup.md) | 사용자 | AI 도구 등록(Claude Code·Cursor 등), 브라우저 로그인, 사용 예시(태스크·메일 등), 문제 해결 |
+| [docs/developer-guide.md](docs/developer-guide.md) | 개발자·운영자 | 인증 모드, 서버 데몬 실행, MCP 엔드포인트, OAuth 흐름, 도구별 명세(21개), 코드 직접 호출 |
+| [docs/naverworks-api-reference.md](docs/naverworks-api-reference.md) | 개발자 | 네이버웍스 Project 및 Mail 내부 API 명세 (실제 API 검증 결과 포함) |
 
 ---
 
@@ -198,6 +198,7 @@ stdio(`apps/server.py`)와 CLI(`apps/cli.py`)는 기본이 `local`입니다.
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `NAVERWORKS_BASE_URL` | `https://project.worksmobile.com` | 네이버웍스 Project 주소 |
+| `NAVERWORKS_MAIL_BASE_URL` | `https://mail.worksmobile.com` | 네이버웍스 Mail 주소 |
 | `NAVERWORKS_DOMAIN_ID` | 없음 | 조직 ID 대체값. 조직 ID는 로그인 정보 → 호출의 ID → 같은 사용자가 이전에 쓴 값 → 로그인한 웹 페이지 순서로 자동 결정합니다. 모두 실패할 때만 이 값을 씁니다. 이 값도 없으면 도구가 `DOMAIN_ID_UNKNOWN`으로 ID를 요청합니다 |
 | `NAVERWORKS_INSTANCE_CODE` | `24101` | `rl` 대체값. `rl`은 응답에서 자동으로 얻고, 확인에 실패했을 때만 씁니다 |
 
@@ -260,7 +261,7 @@ MCP와 같은 인증(헤더 `X-Naverworks-Cookie` 또는 `Authorization: Bearer`
 ### 6.6 프로젝트 구조
 
 ```
-tpjt-naverworks-mcp/
+naverworks-ext-mcp/
 ├── apps/
 │   ├── app/                        # 핵심 애플리케이션 패키지 (import 이름: app)
 │   │   ├── main.py                 # FastAPI 앱, 미들웨어(요청 ID·CORS·로컬 모드 Host 검증), 로그 마스킹, 라우터
@@ -270,7 +271,7 @@ tpjt-naverworks-mcp/
 │   │   │   ├── mcp.py              # MCP 전송 계층 (Streamable HTTP / SSE / 직접 호출)
 │   │   │   ├── oauth.py            # MCP OAuth 브라우저 로그인 (메타데이터, 로그인 페이지, 토큰)
 │   │   │   ├── system.py           # 헬스체크, 대시보드, 쿠키 갱신 (local 모드)
-│   │   │   └── v1/                 # REST API (spaces, projects, tasks)
+│   │   │   └── v1/                 # REST API (spaces, projects, tasks, mail)
 │   │   ├── core/
 │   │   │   ├── mcp_spec.py         # MCP 도구 정의·실행, 응답 경량화, 캐시
 │   │   │   ├── ids.py              # 조직 ID(domainId)·rl 자동 결정
@@ -283,7 +284,7 @@ tpjt-naverworks-mcp/
 │   ├── main.py                     # HTTP 서버 진입점
 │   ├── server.py                   # stdio MCP 서버 진입점 (local 모드)
 │   └── cli.py                      # 터미널 CLI (local 모드)
-├── deploy/                         # setup.sh, run.sh, Dockerfile, docker-compose.yml, requirements, .env.example
+├── deploy/                         # setup.sh, run.sh, daemon.sh, Dockerfile, docker-compose.yml, requirements, .env.example
 ├── docs/                           # 사용자·개발자 문서
 ├── tests/                          # pytest (네이버웍스는 mock, test_live_crud.py만 실제 API·opt-in)
 ├── INSTALL.md
